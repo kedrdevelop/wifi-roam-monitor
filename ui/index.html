@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wi-Fi Roaming Monitor — MyWifi</title>
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-card: #172033;
+            --bg-card-hover: #1e293b;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --border-accent: rgba(56, 189, 248, 0.3);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --cyan-500: #06b6d4;
+            --cyan-400: #38bdf8;
+            --emerald-500: #10b981;
+            --amber-500: #f59e0b;
+            --rose-500: #f43f5e;
+            --purple-500: #a855f7;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            user-select: none;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            overflow-x: hidden;
+            font-size: 14px;
+            line-height: 1.5;
+        }
+
+        /* App Container */
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 16px 24px;
+            gap: 16px;
+        }
+
+        /* Header */
+        header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .brand-section {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #0ea5e9, #6366f1);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.3);
+        }
+
+        .logo-icon svg {
+            width: 22px;
+            height: 22px;
+            fill: none;
+            stroke: #ffffff;
+            stroke-width: 2.2;
+        }
+
+        .brand-title {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .target-tag {
+            background: rgba(56, 189, 248, 0.12);
+            color: var(--cyan-400);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 6px;
+            letter-spacing: 0.05em;
+            text-transform: uppercase;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-pill {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--emerald-500);
+            box-shadow: 0 0 8px var(--emerald-500);
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+
+        .btn {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 6px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+        }
+
+        .btn:hover {
+            background: var(--bg-card-hover);
+            border-color: var(--cyan-400);
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #0284c7, #0369a1);
+            border: 1px solid rgba(56, 189, 248, 0.4);
+        }
+
+        .btn-primary:hover {
+            background: linear-gradient(135deg, #0369a1, #075985);
+        }
+
+        /* Metrics Top Grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: 1.5fr 1fr 1fr;
+            gap: 14px;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card-active {
+            border-color: var(--border-accent);
+            background: linear-gradient(180deg, rgba(56, 189, 248, 0.05) 0%, var(--bg-card) 100%);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-label {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .active-badge {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--emerald-500);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 6px;
+        }
+
+        .bssid-display {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--cyan-400);
+            letter-spacing: 0.04em;
+        }
+
+        .meta-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+        }
+
+        .badge {
+            background: rgba(255, 255, 255, 0.06);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            border: 1px solid var(--border-color);
+        }
+
+        .badge-5g {
+            background: rgba(168, 85, 247, 0.12);
+            color: var(--purple-500);
+            border-color: rgba(168, 85, 247, 0.25);
+        }
+
+        .stat-value-large {
+            font-size: 26px;
+            font-weight: 800;
+            line-height: 1.1;
+        }
+
+        .stat-subtext {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* Signal Bar */
+        .signal-bar-wrap {
+            width: 100%;
+            height: 6px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 3px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+
+        .signal-bar-fill {
+            height: 100%;
+            border-radius: 3px;
+            transition: width 0.4s ease, background-color 0.4s ease;
+        }
+
+        /* Main Workspace Split */
+        .workspace-split {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 14px;
+            flex: 1;
+            min-height: 0;
+        }
+
+        .panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .panel-title {
+            font-size: 13px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Chart Canvas Area */
+        .chart-container {
+            flex: 1;
+            padding: 12px;
+            position: relative;
+            min-height: 180px;
+        }
+
+        canvas#signalChart {
+            width: 100% !important;
+            height: 100% !important;
+            display: block;
+        }
+
+        /* AP List & Events Table */
+        .scrollable-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .ap-item {
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            transition: border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .ap-item:hover {
+            background: var(--bg-card-hover);
+        }
+
+        .ap-item-connected {
+            border-color: rgba(16, 185, 129, 0.4);
+            background: rgba(16, 185, 129, 0.05);
+        }
+
+        .ap-left {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .ap-mac {
+            font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 0.03em;
+        }
+
+        .ap-tags {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+        }
+
+        .ap-right {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            text-align: right;
+        }
+
+        .ap-rssi {
+            font-size: 16px;
+            font-weight: 800;
+            min-width: 70px;
+        }
+
+        /* Events Table */
+        table.events-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        table.events-table th {
+            text-align: left;
+            padding: 8px 12px;
+            color: var(--text-muted);
+            font-weight: 600;
+            border-bottom: 1px solid var(--border-color);
+            text-transform: uppercase;
+            font-size: 10px;
+            letter-spacing: 0.05em;
+        }
+
+        table.events-table td {
+            padding: 8px 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+        }
+
+        table.events-table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .latency-badge {
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 11px;
+        }
+
+        .latency-good {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--emerald-500);
+        }
+
+        .latency-warn {
+            background: rgba(245, 158, 11, 0.15);
+            color: var(--amber-500);
+        }
+
+        .empty-placeholder {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            color: var(--text-muted);
+            font-size: 12px;
+            gap: 8px;
+            padding: 24px;
+            text-align: center;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 5px;
+            height: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header>
+            <div class="brand-section">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24">
+                        <path d="M5 12.55a11 11 0 0 1 14.08 0"></path>
+                        <path d="M1.42 9a16 16 0 0 1 21.16 0"></path>
+                        <path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path>
+                        <line x1="12" y1="20" x2="12.01" y2="20"></line>
+                    </svg>
+                </div>
+                <div>
+                    <div class="brand-title">
+                        Wi-Fi Roaming Sentinel
+                        <span class="target-tag">Target: MyWifi</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="header-actions">
+                <div class="status-pill">
+                    <div class="pulse-dot" id="pingDot"></div>
+                    <span id="gatewayStatus">Gateway: --</span>
+                    <span id="pingVal" style="color: var(--cyan-400); font-weight: 700;">-- ms</span>
+                </div>
+
+                <button class="btn" id="btnAudioToggle" onclick="toggleAudio()">
+                    🔊 Sound: ON
+                </button>
+
+                <button class="btn btn-primary" onclick="triggerScan()">
+                    ↻ Scan Now
+                </button>
+            </div>
+        </header>
+
+        <!-- Top Metrics Cards -->
+        <div class="metrics-grid">
+            <!-- Active Connected AP -->
+            <div class="card card-active">
+                <div class="card-header">
+                    <span class="card-label">Active Access Point</span>
+                    <span class="active-badge" id="activeStatusBadge">CONNECTED</span>
+                </div>
+                <div class="bssid-display" id="activeBssid">--:--:--:--:--:--</div>
+                <div class="meta-row">
+                    <span class="badge badge-5g" id="activeChannel">Ch --</span>
+                    <span class="badge" id="activeSpeed">-- Mbps</span>
+                    <span class="badge" id="activeRssi" style="font-weight: 700; color: var(--cyan-400);">-- dBm</span>
+                </div>
+                <div class="signal-bar-wrap">
+                    <div class="signal-bar-fill" id="activeSignalBar" style="width: 0%; background-color: var(--cyan-400);"></div>
+                </div>
+            </div>
+
+            <!-- Handover Latency Card -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-label">Handover Latency</span>
+                    <span class="badge" id="roamCountBadge">0 ROAMS</span>
+                </div>
+                <div class="stat-value-large" id="lastLatencyVal" style="color: var(--emerald-500);">-- ms</div>
+                <div class="stat-subtext" id="lastRoamTime">Last Roam: No events recorded</div>
+                <div class="meta-row" style="margin-top: 4px;">
+                    <span class="stat-subtext" id="lastPath">Path: Standing by...</span>
+                </div>
+            </div>
+
+            <!-- Network Overview -->
+            <div class="card">
+                <div class="card-header">
+                    <span class="card-label">MyWifi Environment</span>
+                    <span class="badge" id="visibleApsCount">0 APs VISIBLE</span>
+                </div>
+                <div class="stat-value-large" id="strongestRssi" style="color: var(--cyan-400);">-- dBm</div>
+                <div class="stat-subtext">Peak signal among visible MyWifi APs</div>
+                <div class="meta-row" style="margin-top: 4px;">
+                    <span class="stat-subtext" id="activeBand">Band: 5 GHz</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Middle Live Signal Chart (Canvas) -->
+        <div class="panel" style="height: 220px;">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+                    </svg>
+                    Real-time Signal Graph (dBm over Time)
+                </div>
+                <div id="chartLegend" style="display: flex; gap: 12px; font-size: 11px; align-items: center;"></div>
+            </div>
+            <div class="chart-container">
+                <canvas id="signalChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Lower Split: Visible APs & Roaming Log -->
+        <div class="workspace-split">
+            <!-- Visible APs Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                            <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                            <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                            <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                        </svg>
+                        All Visible APs of "MyWifi"
+                    </div>
+                    <span class="badge" id="apCountLabel">0 APs</span>
+                </div>
+                <div class="scrollable-list" id="apList">
+                    <div class="empty-placeholder">Scanning for MyWifi access points...</div>
+                </div>
+            </div>
+
+            <!-- Roaming Events Table Panel -->
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="16 3 21 3 21 8"></polyline>
+                            <line x1="4" y1="20" x2="21" y2="3"></line>
+                            <polyline points="21 16 21 21 16 21"></polyline>
+                            <line x1="15" y1="15" x2="21" y2="21"></line>
+                            <line x1="4" y1="4" x2="9" y2="9"></line>
+                        </svg>
+                        Access Point Roaming History
+                    </div>
+                    <button class="btn" style="padding: 2px 8px; font-size: 10px;" onclick="clearEvents()">Clear</button>
+                </div>
+                <div class="scrollable-list" style="padding: 0;">
+                    <table class="events-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Previous AP</th>
+                                <th>New AP</th>
+                                <th>Channels</th>
+                                <th>Latency</th>
+                            </tr>
+                        </thead>
+                        <tbody id="eventsTbody">
+                            <tr>
+                                <td colspan="5">
+                                    <div class="empty-placeholder">Walk around to observe AP transitions</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        let audioEnabled = true;
+        let audioCtx = null;
+        let lastKnownBssid = null;
+
+        // Color palette for AP chart lines
+        const apColors = [
+            '#38bdf8', // Sky Blue
+            '#a855f7', // Purple
+            '#f59e0b', // Amber
+            '#10b981', // Emerald
+            '#f43f5e', // Rose
+            '#06b6d4', // Cyan
+            '#eab308'  // Yellow
+        ];
+        const assignedColors = {};
+        let colorIdx = 0;
+
+        function getColorForBssid(bssid) {
+            if (!assignedColors[bssid]) {
+                assignedColors[bssid] = apColors[colorIdx % apColors.length];
+                colorIdx++;
+            }
+            return assignedColors[bssid];
+        }
+
+        // Play pleasant chime on roam handover
+        function playRoamSound() {
+            if (!audioEnabled) return;
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const now = audioCtx.currentTime;
+                
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(587.33, now); // D5
+                osc.frequency.exponentialRampToValueAtTime(880, now + 0.15); // A5
+                
+                gain.gain.setValueAtTime(0.15, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.35);
+                
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+                osc.start(now);
+                osc.stop(now + 0.35);
+            } catch(e) {}
+        }
+
+        function toggleAudio() {
+            audioEnabled = !audioEnabled;
+            document.getElementById('btnAudioToggle').innerText = audioEnabled ? "🔊 Sound: ON" : "🔇 Sound: OFF";
+        }
+
+        // Rolling Chart Buffer
+        const MAX_HISTORY = 45;
+        const chartHistory = []; // { timeLabel, bssids: { [bssid]: rssi } }
+
+        const canvas = document.getElementById('signalChart');
+        const ctx = canvas.getContext('2d');
+
+        function resizeCanvas() {
+            canvas.width = canvas.parentElement.clientWidth;
+            canvas.height = canvas.parentElement.clientHeight;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        setTimeout(resizeCanvas, 100);
+
+        function drawChart() {
+            const w = canvas.width;
+            const h = canvas.height;
+            if (!w || !h) return;
+
+            ctx.clearRect(0, 0, w, h);
+
+            // Chart area bounds
+            const padL = 45;
+            const padR = 20;
+            const padT = 15;
+            const padB = 25;
+            const plotW = w - padL - padR;
+            const plotH = h - padT - padB;
+
+            // dBm Range: -30 dBm (top) to -95 dBm (bottom)
+            const minDbm = -95;
+            const maxDbm = -30;
+
+            function getY(dbm) {
+                const clamped = Math.max(minDbm, Math.min(maxDbm, dbm));
+                const ratio = (clamped - minDbm) / (maxDbm - minDbm);
+                return padT + plotH * (1 - ratio);
+            }
+
+            // Draw horizontal grid lines
+            ctx.lineWidth = 1;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+            ctx.fillStyle = '#64748b';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'right';
+
+            for (let dbm = -30; dbm >= -90; dbm -= 15) {
+                const y = getY(dbm);
+                ctx.beginPath();
+                ctx.moveTo(padL, y);
+                ctx.lineTo(w - padR, y);
+                ctx.stroke();
+                ctx.fillText(dbm + " dBm", padL - 8, y + 3);
+            }
+
+            // Draw critical roam boundary line at -72 dBm
+            const roamY = getY(-72);
+            ctx.strokeStyle = 'rgba(245, 158, 11, 0.2)';
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(padL, roamY);
+            ctx.lineTo(w - padR, roamY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.fillStyle = 'rgba(245, 158, 11, 0.7)';
+            ctx.fillText("-72 dBm (Target Roam)", w - padR, roamY - 4);
+
+            if (chartHistory.length < 2) return;
+
+            // Collect all known BSSIDs across buffer
+            const allBssids = new Set();
+            chartHistory.forEach(pt => Object.keys(pt.bssids).forEach(b => allBssids.add(b)));
+
+            // Draw lines for each BSSID
+            allBssids.forEach(bssid => {
+                const col = getColorForBssid(bssid);
+                const isConnected = (bssid === lastKnownBssid);
+
+                ctx.lineWidth = isConnected ? 3 : 1.5;
+                ctx.strokeStyle = col;
+                ctx.shadowColor = isConnected ? col : 'transparent';
+                ctx.shadowBlur = isConnected ? 8 : 0;
+
+                ctx.beginPath();
+                let started = false;
+
+                chartHistory.forEach((pt, i) => {
+                    const rssi = pt.bssids[bssid];
+                    if (rssi !== undefined) {
+                        const x = padL + (i / (MAX_HISTORY - 1)) * plotW;
+                        const y = getY(rssi);
+                        if (!started) {
+                            ctx.moveTo(x, y);
+                            started = true;
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    }
+                });
+                ctx.stroke();
+                ctx.shadowBlur = 0; // reset
+            });
+        }
+
+        function updateUI(data) {
+            if (!data) return;
+
+            // 1. Gateway & Ping Status
+            document.getElementById('gatewayStatus').innerText = `GW: ${data.gateway || '--'}`;
+            const pingVal = document.getElementById('pingVal');
+            const pingDot = document.getElementById('pingDot');
+            if (data.ping_ms !== null) {
+                pingVal.innerText = `${data.ping_ms} ms`;
+                pingVal.style.color = data.ping_ms < 50 ? 'var(--emerald-500)' : 'var(--amber-500)';
+                pingDot.style.backgroundColor = 'var(--emerald-500)';
+                pingDot.style.boxShadow = '0 0 8px var(--emerald-500)';
+            } else {
+                pingVal.innerText = "DROP";
+                pingVal.style.color = 'var(--rose-500)';
+                pingDot.style.backgroundColor = 'var(--rose-500)';
+                pingDot.style.boxShadow = '0 0 8px var(--rose-500)';
+            }
+
+            // 2. Active AP Card
+            const activeAp = data.active_ap;
+            const activeBssidEl = document.getElementById('activeBssid');
+            const activeChEl = document.getElementById('activeChannel');
+            const activeSpeedEl = document.getElementById('activeSpeed');
+            const activeRssiEl = document.getElementById('activeRssi');
+            const activeBar = document.getElementById('activeSignalBar');
+
+            if (activeAp) {
+                activeBssidEl.innerText = activeAp.bssid.toUpperCase();
+                activeChEl.innerText = `Ch ${activeAp.channel} (${activeAp.band})`;
+                activeSpeedEl.innerText = `${data.connected_info?.rx_rate || 574} Mbps`;
+                activeRssiEl.innerText = `${activeAp.rssi} dBm`;
+
+                // Signal Color
+                const quality = activeAp.quality || 50;
+                activeBar.style.width = quality + '%';
+                if (activeAp.rssi >= -65) activeBar.style.backgroundColor = 'var(--emerald-500)';
+                else if (activeAp.rssi >= -75) activeBar.style.backgroundColor = 'var(--amber-500)';
+                else activeBar.style.backgroundColor = 'var(--rose-500)';
+
+                document.getElementById('activeBand').innerText = `Band: ${activeAp.band} • Channel ${activeAp.channel}`;
+            } else {
+                activeBssidEl.innerText = data.connected_bssid ? data.connected_bssid.toUpperCase() : "DISCONNECTED";
+                activeChEl.innerText = "Ch --";
+                activeRssiEl.innerText = "-- dBm";
+                activeBar.style.width = '0%';
+            }
+
+            // Check for roam chime
+            if (data.connected_bssid && lastKnownBssid && data.connected_bssid !== lastKnownBssid) {
+                playRoamSound();
+            }
+            lastKnownBssid = data.connected_bssid;
+
+            // 3. Handover & Roam Stats
+            document.getElementById('roamCountBadge').innerText = `${data.roam_count} ROAMS`;
+            const lastLat = document.getElementById('lastLatencyVal');
+            if (data.last_handover_latency_ms !== null) {
+                lastLat.innerText = `${data.last_handover_latency_ms} ms`;
+                lastLat.style.color = data.last_handover_latency_ms < 100 ? 'var(--emerald-500)' : 'var(--amber-500)';
+            }
+            if (data.last_roam_time) {
+                document.getElementById('lastRoamTime').innerText = `Last Roam: ${data.last_roam_time}`;
+            }
+
+            // 4. Visible APs List
+            const aps = data.visible_aps || [];
+            document.getElementById('visibleApsCount').innerText = `${aps.length} APs VISIBLE`;
+            document.getElementById('apCountLabel').innerText = `${aps.length} APs`;
+
+            if (aps.length > 0) {
+                document.getElementById('strongestRssi').innerText = `${aps[0].rssi} dBm`;
+            }
+
+            const apListEl = document.getElementById('apList');
+            if (aps.length === 0) {
+                apListEl.innerHTML = '<div class="empty-placeholder">No MyWifi access points currently visible.</div>';
+            } else {
+                apListEl.innerHTML = aps.map(ap => {
+                    const isConn = ap.is_connected;
+                    const col = getColorForBssid(ap.bssid);
+                    const rssiColor = ap.rssi >= -65 ? 'var(--emerald-500)' : (ap.rssi >= -75 ? 'var(--amber-500)' : 'var(--rose-500)');
+
+                    return `
+                        <div class="ap-item ${isConn ? 'ap-item-connected' : ''}">
+                            <div class="ap-left">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="width: 8px; height: 8px; border-radius: 50%; background: ${col}; display: inline-block;"></span>
+                                    <span class="ap-mac">${ap.bssid.toUpperCase()}</span>
+                                    ${isConn ? '<span class="active-badge">CONNECTED</span>' : ''}
+                                </div>
+                                <div class="ap-tags">
+                                    <span class="badge ${ap.band === '5 GHz' ? 'badge-5g' : ''}">Ch ${ap.channel} (${ap.band})</span>
+                                    <span class="badge">${ap.freq_mhz.toFixed(0)} MHz</span>
+                                </div>
+                            </div>
+                            <div class="ap-right">
+                                <div class="ap-rssi" style="color: ${rssiColor};">
+                                    ${ap.rssi} dBm
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            }
+
+            // 5. Update Chart Buffer
+            const currentBssids = {};
+            aps.forEach(ap => currentBssids[ap.bssid] = ap.rssi);
+
+            chartHistory.push({
+                time: Date.now(),
+                bssids: currentBssids
+            });
+            if (chartHistory.length > MAX_HISTORY) chartHistory.shift();
+
+            // Update Chart Legend
+            const legendEl = document.getElementById('chartLegend');
+            legendEl.innerHTML = aps.slice(0, 5).map(ap => {
+                const col = getColorForBssid(ap.bssid);
+                return `
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span style="width: 8px; height: 8px; border-radius: 50%; background: ${col};"></span>
+                        <span>${ap.bssid.slice(-8).toUpperCase()} (Ch ${ap.channel})</span>
+                    </div>
+                `;
+            }).join('');
+
+            drawChart();
+
+            // 6. Roaming Events Table
+            const events = data.roam_events || [];
+            const tbody = document.getElementById('eventsTbody');
+            if (events.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5"><div class="empty-placeholder">Walk around the office to record roam transitions</div></td></tr>';
+            } else {
+                tbody.innerHTML = events.map(ev => {
+                    const latClass = ev.latency_ms < 100 ? 'latency-good' : 'latency-warn';
+                    return `
+                        <tr>
+                            <td style="font-weight: 600; color: var(--text-muted);">${ev.time}</td>
+                            <td style="font-family: monospace;">${ev.old_bssid.slice(-8).toUpperCase()}</td>
+                            <td style="font-family: monospace; font-weight: 700; color: var(--cyan-400);">${ev.new_bssid.slice(-8).toUpperCase()}</td>
+                            <td>Ch ${ev.old_channel} → ${ev.new_channel}</td>
+                            <td><span class="latency-badge ${latClass}">${ev.latency_ms} ms</span></td>
+                        </tr>
+                    `;
+                }).join('');
+
+                const latest = events[0];
+                document.getElementById('lastPath').innerText = `Path: ${latest.old_bssid.slice(-8).toUpperCase()} (Ch ${latest.old_channel}) → ${latest.new_bssid.slice(-8).toUpperCase()} (Ch ${latest.new_channel})`;
+            }
+        }
+
+        function triggerScan() {
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.trigger_scan();
+            }
+        }
+
+        function clearEvents() {
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.clear_events();
+            }
+        }
+
+        // Polling loop to get live data from Python backend
+        async function pollData() {
+            if (window.pywebview && window.pywebview.api) {
+                try {
+                    const state = await window.pywebview.api.get_state();
+                    updateUI(state);
+                } catch(e) {
+                    console.error("Fetch error:", e);
+                }
+            }
+            setTimeout(pollData, 500); // 500ms smooth UI refresh
+        }
+
+        window.addEventListener('pywebviewready', () => {
+            pollData();
+        });
+    </script>
+</body>
+</html>
