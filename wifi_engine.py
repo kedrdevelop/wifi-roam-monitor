@@ -102,16 +102,28 @@ def freq_to_channel(freq_khz):
     return 0, "Unknown"
 
 def get_default_gateway():
-    """Discover IPv4 default gateway address via route command."""
+    """Discover IPv4 default gateway address with the lowest metric via route print."""
     try:
         output = subprocess.check_output(['route', 'print', '0.0.0.0'], text=True, stderr=subprocess.DEVNULL)
+        best_gw = None
+        best_metric = float('inf')
         for line in output.splitlines():
             parts = line.strip().split()
             if len(parts) >= 5 and parts[0] == '0.0.0.0' and parts[1] == '0.0.0.0':
-                return parts[2]
+                gw = parts[2]
+                if gw not in ('On-link', '0.0.0.0'):
+                    try:
+                        metric = int(parts[4])
+                    except ValueError:
+                        metric = 9999
+                    if metric < best_metric:
+                        best_metric = metric
+                        best_gw = gw
+        if best_gw:
+            return best_gw
     except Exception:
         pass
-    return "192.168.1.1"
+    return None
 
 
 class WifiMonitor:
@@ -130,6 +142,7 @@ class WifiMonitor:
         self.gateway = get_default_gateway()
         self.last_ping_ms = None
         self.ping_status = "Unknown"
+        self.consecutive_drops = 0
         self.lock = threading.Lock()
         self.running = False
         
@@ -176,7 +189,9 @@ class WifiMonitor:
     def trigger_scan(self):
         """Request the driver to scan for wireless networks."""
         if self.handle and self.guid:
-            wlan.WlanScan(self.handle, ctypes.byref(self.guid), None, None, None)
+            ret = wlan.WlanScan(self.handle, ctypes.byref(self.guid), None, None, None)
+            return ret == 0
+        return False
 
     def query_connected(self):
         """Query currently associated BSSID, link speed, and signal quality."""
@@ -287,10 +302,18 @@ class WifiMonitor:
     def _ping_worker(self):
         """Continuously probes the gateway to measure packet latency and detect drops during roam."""
         while self.running:
+            gw = self.gateway
+            if not gw:
+                with self.lock:
+                    self.ping_status = "NO_GW"
+                    self.last_ping_ms = None
+                time.sleep(0.5)
+                continue
+
             t0 = time.perf_counter()
             try:
                 res = subprocess.run(
-                    ['ping', '-n', '1', '-w', '300', self.gateway],
+                    ['ping', '-n', '1', '-w', '800', gw],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.DEVNULL,
                     text=True
@@ -313,6 +336,7 @@ class WifiMonitor:
                 now = time.time()
                 with self.lock:
                     if success:
+                        self.consecutive_drops = 0
                         self.last_ping_ms = rtt if rtt is not None else int(dt)
                         self.ping_status = "OK"
                         if self.drop_start_time is not None:
@@ -320,6 +344,7 @@ class WifiMonitor:
                             self.last_handover_latency_ms = round(drop_duration, 1)
                             self.drop_start_time = None
                     else:
+                        self.consecutive_drops += 1
                         self.ping_status = "DROP"
                         self.last_ping_ms = None
                         if self.drop_start_time is None:
@@ -333,14 +358,22 @@ class WifiMonitor:
                     if len(self.recent_pings) > 20:
                         self.recent_pings.pop(0)
 
+                # If drops occur consecutively, check if gateway IP changed
+                if not success and self.consecutive_drops >= 2:
+                    fresh_gw = get_default_gateway()
+                    if fresh_gw and fresh_gw != self.gateway:
+                        with self.lock:
+                            self.gateway = fresh_gw
+
             except Exception:
                 pass
 
-            time.sleep(0.15)
+            time.sleep(0.4)
 
     def _monitor_worker(self):
-        """Polls connected BSSID at 100ms interval and triggers background scans periodically."""
+        """Polls connected BSSID at 100ms interval and tracks network state."""
         scan_counter = 0
+        gw_check_counter = 0
         while self.running:
             try:
                 conn = self.query_connected()
@@ -348,13 +381,22 @@ class WifiMonitor:
                 curr_ssid = conn.get("ssid", "") if conn else ""
                 is_connected = conn.get("connected", False) if conn else False
 
+                # Periodically re-verify default gateway every ~2.5s (25 ticks)
+                gw_check_counter += 1
+                if gw_check_counter >= 25 or not self.gateway:
+                    gw_check_counter = 0
+                    fresh_gw = get_default_gateway()
+                    if fresh_gw != self.gateway:
+                        with self.lock:
+                            self.gateway = fresh_gw
+
                 with self.lock:
                     if is_connected and curr_ssid:
                         if curr_ssid != self.connected_ssid:
                             self.connected_ssid = curr_ssid
-                            new_gw = get_default_gateway()
-                            if new_gw:
-                                self.gateway = new_gw
+                            fresh_gw = get_default_gateway()
+                            if fresh_gw:
+                                self.gateway = fresh_gw
                             if self.last_seen_bssid != "":
                                 self.last_seen_bssid = ""
                     elif not is_connected:
@@ -364,8 +406,10 @@ class WifiMonitor:
 
                 aps = self.query_visible_aps()
 
+                # Background scan every ~15 seconds (150 ticks) instead of aggressive 3.5s
+                # to prevent off-channel dwell from dropping Wi-Fi pings
                 scan_counter += 1
-                if scan_counter >= 35:
+                if scan_counter >= 150:
                     scan_counter = 0
                     self.trigger_scan()
 
@@ -408,6 +452,11 @@ class WifiMonitor:
                                 "latency_ms": latency
                             }
                             self.roam_events.insert(0, event)
+
+                            # On roam, immediately refresh gateway (possible VLAN/subnet change)
+                            fresh_gw = get_default_gateway()
+                            if fresh_gw:
+                                self.gateway = fresh_gw
 
                         self.last_seen_bssid = curr_bssid
                         self.last_seen_channel = curr_ch

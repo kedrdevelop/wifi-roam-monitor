@@ -167,6 +167,21 @@
             background: linear-gradient(135deg, #0369a1, #075985);
         }
 
+        .btn:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .spin-icon {
+            display: inline-block;
+            animation: spin 1s linear infinite;
+        }
+
         /* Metrics Top Grid */
         .metrics-grid {
             display: grid;
@@ -488,7 +503,7 @@
                     🔊 Sound: ON
                 </button>
 
-                <button class="btn btn-primary" onclick="triggerScan()">
+                <button class="btn btn-primary" id="btnScanNow" onclick="triggerScan()">
                     ↻ Scan Now
                 </button>
             </div>
@@ -801,7 +816,12 @@
             document.getElementById('gatewayStatus').innerText = `GW: ${data.gateway || '--'}`;
             const pingVal = document.getElementById('pingVal');
             const pingDot = document.getElementById('pingDot');
-            if (data.ping_ms !== null) {
+            if (data.ping_status === "NO_GW" || !data.gateway) {
+                pingVal.innerText = "NO GW";
+                pingVal.style.color = 'var(--text-muted)';
+                pingDot.style.backgroundColor = 'var(--text-muted)';
+                pingDot.style.boxShadow = 'none';
+            } else if (data.ping_ms !== null) {
                 pingVal.innerText = `${data.ping_ms} ms`;
                 pingVal.style.color = data.ping_ms < 50 ? 'var(--emerald-500)' : 'var(--amber-500)';
                 pingDot.style.backgroundColor = 'var(--emerald-500)';
@@ -964,10 +984,45 @@
             }
         }
 
-        function triggerScan() {
-            if (window.pywebview && window.pywebview.api) {
-                window.pywebview.api.trigger_scan();
+        let isScanning = false;
+        async function triggerScan() {
+            if (isScanning) return;
+            const btn = document.getElementById('btnScanNow');
+            isScanning = true;
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spin-icon">↻</span> Scanning...';
+                btn.style.opacity = '0.8';
             }
+
+            if (window.pywebview && window.pywebview.api) {
+                try {
+                    await window.pywebview.api.trigger_scan();
+                } catch(e) {
+                    console.error("Scan error:", e);
+                }
+            }
+
+            // Driver takes ~1.5 - 2.0s to cycle through Wi-Fi channels and update BSS cache
+            setTimeout(async () => {
+                if (window.pywebview && window.pywebview.api) {
+                    try {
+                        const state = await window.pywebview.api.get_state();
+                        updateUI(state);
+                    } catch(e) {}
+                }
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '✓ Scanned';
+                    btn.style.opacity = '1';
+                    setTimeout(() => {
+                        btn.innerHTML = '↻ Scan Now';
+                        isScanning = false;
+                    }, 1200);
+                } else {
+                    isScanning = false;
+                }
+            }, 1800);
         }
 
         function clearEvents() {
