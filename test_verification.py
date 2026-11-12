@@ -24,6 +24,18 @@ def run_checks():
     print("Gateway:", st["gateway"], "| Ping:", st["ping_ms"], "ms | Status:", st["ping_status"])
     print("Trigger scan:", api.trigger_scan())
     print("Clear events:", api.clear_events())
+
+    # Test Session Recording
+    print("\n--- Testing Telemetry Session Recording ---")
+    rec_start = api.start_recording()
+    print("Start recording response:", rec_start)
+    assert rec_start["success"] is True, "Failed to start recording"
+    time.sleep(1.2)  # Collect ~3-4 samples
+    rec_stop = api.stop_recording()
+    print("Stop recording response:", rec_stop)
+    assert rec_stop["success"] is True, "Failed to stop recording"
+    assert rec_stop["records_count"] > 0, "No records written to CSV"
+    print(f"Verified CSV file created at: {rec_stop['file_path']} with {rec_stop['records_count']} records.")
     
     m.close()
     print("ALL API VERIFICATION CHECKS PASSED SUCCESSFULLY!")

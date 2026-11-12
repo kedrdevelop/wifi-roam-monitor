@@ -27,6 +27,24 @@ class RoamingApi:
             self.monitor.last_roam_time = None
         return True
 
+    def start_recording(self):
+        """Start recording telemetry session to a CSV file."""
+        return self.monitor.start_recording()
+
+    def stop_recording(self):
+        """Stop recording telemetry session and save CSV file."""
+        return self.monitor.stop_recording()
+
+    def open_logs_folder(self):
+        """Open the logs directory in Windows Explorer."""
+        logs_dir = os.path.abspath(self.monitor.logger.logs_dir)
+        os.makedirs(logs_dir, exist_ok=True)
+        try:
+            os.startfile(logs_dir)
+            return True
+        except Exception:
+            return False
+
 
 def main():
     target_ssid = None

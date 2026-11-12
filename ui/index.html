@@ -182,6 +182,64 @@
             animation: spin 1s linear infinite;
         }
 
+        /* Record Button & Dot */
+        .btn-record {
+            border-color: rgba(244, 63, 94, 0.4);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .btn-record:hover {
+            border-color: var(--rose-500);
+        }
+
+        .btn-record.recording {
+            background: rgba(244, 63, 94, 0.16);
+            border-color: var(--rose-500);
+            box-shadow: 0 0 10px rgba(244, 63, 94, 0.35);
+            color: #fecdd3;
+        }
+
+        .record-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--text-muted);
+            display: inline-block;
+            transition: all 0.2s ease;
+        }
+
+        .btn-record.recording .record-dot {
+            background: var(--rose-500);
+            box-shadow: 0 0 8px var(--rose-500);
+            animation: pulse 1s infinite ease-in-out;
+        }
+
+        /* Toast notification */
+        .toast-notification {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #172033;
+            color: #f8fafc;
+            border: 1px solid var(--cyan-400);
+            padding: 10px 18px;
+            border-radius: 8px;
+            font-size: 12px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s ease;
+            pointer-events: none;
+            z-index: 9999;
+        }
+
+        .toast-notification.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
         /* Metrics Top Grid */
         .metrics-grid {
             display: grid;
@@ -498,6 +556,15 @@
                     <span id="gatewayStatus">Gateway: --</span>
                     <span id="pingVal" style="color: var(--cyan-400); font-weight: 700;">-- ms</span>
                 </div>
+
+                <button class="btn btn-record" id="btnRecordToggle" onclick="toggleRecording()">
+                    <span class="record-dot" id="recordDot"></span>
+                    <span id="recordBtnText">⏺ Record</span>
+                </button>
+
+                <button class="btn" onclick="openLogsFolder()" title="Open logs directory in Explorer">
+                    📁 Logs
+                </button>
 
                 <button class="btn" id="btnAudioToggle" onclick="toggleAudio()">
                     🔊 Sound: ON
@@ -982,6 +1049,79 @@
                 const latest = events[0];
                 document.getElementById('lastPath').innerText = `Path: ${latest.old_bssid.slice(-8).toUpperCase()} (Ch ${latest.old_channel}) → ${latest.new_bssid.slice(-8).toUpperCase()} (Ch ${latest.new_channel})`;
             }
+
+            // 7. Update Recording State
+            if (data.recording) {
+                const rec = data.recording;
+                const btn = document.getElementById('btnRecordToggle');
+                const btnText = document.getElementById('recordBtnText');
+                if (btn && btnText) {
+                    if (rec.is_recording) {
+                        isRecordingSession = true;
+                        btn.classList.add('recording');
+                        const totalSecs = Math.floor(rec.duration_sec);
+                        const mins = Math.floor(totalSecs / 60).toString().padStart(2, '0');
+                        const secs = (totalSecs % 60).toString().padStart(2, '0');
+                        btnText.innerText = `⏹ Stop (${mins}:${secs} • ${rec.records_count})`;
+                    } else if (!isRecordingSession) {
+                        btn.classList.remove('recording');
+                        btnText.innerText = '⏺ Record';
+                    }
+                }
+            }
+        }
+
+        function showToast(message, isSuccess = true) {
+            let toast = document.getElementById('toastNotification');
+            if (!toast) return;
+            toast.innerText = message;
+            toast.style.borderColor = isSuccess ? 'var(--cyan-400)' : 'var(--rose-500)';
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3500);
+        }
+
+        let isRecordingSession = false;
+
+        async function toggleRecording() {
+            if (!window.pywebview || !window.pywebview.api) return;
+            const btn = document.getElementById('btnRecordToggle');
+            const btnText = document.getElementById('recordBtnText');
+
+            if (!isRecordingSession) {
+                try {
+                    const res = await window.pywebview.api.start_recording();
+                    if (res && res.success) {
+                        isRecordingSession = true;
+                        btn.classList.add('recording');
+                        btnText.innerText = '⏹ Stop (00:00)';
+                        showToast(`⏺ Recording started: ${res.filename}`);
+                    } else {
+                        showToast(`Recording failed: ${res?.message || 'Error'}`, false);
+                    }
+                } catch(e) {
+                    console.error("Start record error:", e);
+                }
+            } else {
+                try {
+                    const res = await window.pywebview.api.stop_recording();
+                    isRecordingSession = false;
+                    btn.classList.remove('recording');
+                    btnText.innerText = '⏺ Record';
+                    if (res && res.success) {
+                        showToast(`✓ Saved: ${res.filename} (${res.records_count} samples, ${res.duration_sec}s)`);
+                    }
+                } catch(e) {
+                    console.error("Stop record error:", e);
+                }
+            }
+        }
+
+        function openLogsFolder() {
+            if (window.pywebview && window.pywebview.api) {
+                window.pywebview.api.open_logs_folder();
+            }
         }
 
         let isScanning = false;
@@ -1048,5 +1188,6 @@
             pollData();
         });
     </script>
+    <div id="toastNotification" class="toast-notification"></div>
 </body>
 </html>

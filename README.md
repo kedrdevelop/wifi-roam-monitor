@@ -10,6 +10,7 @@ The application monitors transitions between Access Points (BSSIDs), measures ha
 
 - **Automatic Network Detection**: Automatically discovers and monitors whichever Wi-Fi network the computer is currently connected to, adapting dynamically if you switch networks.
 - **Active AP Telemetry**: Real-time tracking of current BSSID, RSSI (dBm), operating channel, frequency band (2.4 GHz / 5 GHz / 6 GHz), and link transmission rates (Rx/Tx).
+- **Session Telemetry Recording**: One-click Start/Stop logging to standalone CSV files (`logs/roam_session_*.csv`) ready for automated analysis in Python (pandas) and MATLAB (`readtable`).
 - **Handover Latency Measurement**: Accurate detection of roaming events and calculation of transitional handover latency between APs.
 - **Continuous Gateway Ping Monitor**: Background ICMP telemetry to detect packet drops, link disruptions, or latency spikes during AP transitions.
 - **SSID Access Point Scanner**: Live discovery of all visible Access Points broadcasting the active network, along with signal strength indicators and band badges.
@@ -53,6 +54,47 @@ python app.py "YourNetworkSSID"
 ```
 
 Alternatively, double-click `start.bat` to launch immediately.
+
+---
+
+## Analyzing Recorded Logs
+
+Telemetry logs are saved in the `logs/` directory in structured CSV format.
+
+### Python (pandas & matplotlib)
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv("logs/roam_session_2026-11-12_12-25-17.csv")
+
+plt.figure(figsize=(10, 5))
+plt.plot(df["elapsed_sec"], df["rssi_dbm"], label="RSSI (dBm)", color="#0ea5e9")
+roams = df[df["event_type"] == "ROAM"]
+plt.scatter(roams["elapsed_sec"], roams["rssi_dbm"], color="#f43f5e", s=80, label="Roam Handover", zorder=5)
+plt.xlabel("Elapsed Time (seconds)")
+plt.ylabel("Signal Strength (dBm)")
+plt.title("Wi-Fi Roaming Signal & Transitions")
+plt.grid(True, alpha=0.3)
+plt.legend()
+plt.show()
+```
+
+### MATLAB
+```matlab
+T = readtable('logs/roam_session_2026-11-12_12-25-17.csv');
+
+figure;
+plot(T.elapsed_sec, T.rssi_dbm, 'b-', 'LineWidth', 1.5);
+hold on;
+roamIdx = strcmp(T.event_type, 'ROAM');
+plot(T.elapsed_sec(roamIdx), T.rssi_dbm(roamIdx), 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+xlabel('Elapsed Time (s)');
+ylabel('RSSI (dBm)');
+title('Wi-Fi Roaming Profile');
+grid on;
+legend('RSSI (dBm)', 'Roam Event');
+```
 
 ---
 

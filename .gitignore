@@ -22,3 +22,7 @@ ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
 .DS_Store
+
+# Session recordings and log dumps
+logs/
+*.csv

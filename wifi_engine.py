@@ -1,3 +1,6 @@
+import os
+import csv
+from datetime import datetime
 import ctypes
 from ctypes import wintypes
 import time
@@ -126,10 +129,142 @@ def get_default_gateway():
     return None
 
 
+class SessionLogger:
+    """Manages recording telemetry data to CSV files for Python/MATLAB analysis."""
+
+    HEADERS = [
+        "timestamp_iso",
+        "elapsed_sec",
+        "event_type",
+        "ssid",
+        "connected_bssid",
+        "channel",
+        "band",
+        "rssi_dbm",
+        "link_quality",
+        "rx_rate_mbps",
+        "tx_rate_mbps",
+        "gateway_ip",
+        "ping_rtt_ms",
+        "ping_status",
+        "roam_latency_ms",
+        "from_bssid",
+        "from_channel",
+        "visible_aps_count"
+    ]
+
+    def __init__(self, logs_dir="logs"):
+        self.logs_dir = os.path.abspath(logs_dir)
+        self.is_recording = False
+        self.file_handle = None
+        self.csv_writer = None
+        self.file_path = ""
+        self.filename = ""
+        self.start_time = None
+        self.record_count = 0
+        self.lock = threading.Lock()
+
+    def start(self):
+        with self.lock:
+            if self.is_recording:
+                return {"success": False, "message": "Already recording", "file_path": self.file_path}
+
+            try:
+                os.makedirs(self.logs_dir, exist_ok=True)
+                now = datetime.now()
+                self.filename = f"roam_session_{now.strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+                self.file_path = os.path.join(self.logs_dir, self.filename)
+                
+                self.file_handle = open(self.file_path, mode="w", newline="", encoding="utf-8")
+                self.csv_writer = csv.DictWriter(self.file_handle, fieldnames=self.HEADERS)
+                self.csv_writer.writeheader()
+                self.file_handle.flush()
+
+                self.is_recording = True
+                self.start_time = time.perf_counter()
+                self.record_count = 0
+                return {"success": True, "file_path": self.file_path, "filename": self.filename}
+            except Exception as e:
+                return {"success": False, "message": str(e)}
+
+    def stop(self):
+        with self.lock:
+            if not self.is_recording:
+                return {"success": False, "message": "Not recording"}
+
+            self.is_recording = False
+            duration = round(time.perf_counter() - self.start_time, 2) if self.start_time else 0.0
+            count = self.record_count
+            saved_path = self.file_path
+            saved_name = self.filename
+
+            try:
+                if self.file_handle:
+                    self.file_handle.flush()
+                    self.file_handle.close()
+            except Exception:
+                pass
+            finally:
+                self.file_handle = None
+                self.csv_writer = None
+
+            return {
+                "success": True,
+                "file_path": saved_path,
+                "filename": saved_name,
+                "duration_sec": duration,
+                "records_count": count
+            }
+
+    def log_entry(self, entry_dict):
+        with self.lock:
+            if not self.is_recording or not self.csv_writer:
+                return
+
+            try:
+                elapsed = round(time.perf_counter() - self.start_time, 3) if self.start_time else 0.0
+                row = {
+                    "timestamp_iso": datetime.now().isoformat(timespec="milliseconds"),
+                    "elapsed_sec": f"{elapsed:.3f}",
+                    "event_type": entry_dict.get("event_type", "SAMPLE"),
+                    "ssid": entry_dict.get("ssid", ""),
+                    "connected_bssid": entry_dict.get("connected_bssid", ""),
+                    "channel": entry_dict.get("channel", ""),
+                    "band": entry_dict.get("band", ""),
+                    "rssi_dbm": entry_dict.get("rssi_dbm", ""),
+                    "link_quality": entry_dict.get("link_quality", ""),
+                    "rx_rate_mbps": entry_dict.get("rx_rate_mbps", ""),
+                    "tx_rate_mbps": entry_dict.get("tx_rate_mbps", ""),
+                    "gateway_ip": entry_dict.get("gateway_ip", ""),
+                    "ping_rtt_ms": entry_dict.get("ping_rtt_ms", ""),
+                    "ping_status": entry_dict.get("ping_status", ""),
+                    "roam_latency_ms": entry_dict.get("roam_latency_ms", ""),
+                    "from_bssid": entry_dict.get("from_bssid", ""),
+                    "from_channel": entry_dict.get("from_channel", ""),
+                    "visible_aps_count": entry_dict.get("visible_aps_count", 0)
+                }
+                self.csv_writer.writerow(row)
+                self.file_handle.flush()
+                self.record_count += 1
+            except Exception:
+                pass
+
+    def get_state(self):
+        with self.lock:
+            duration = round(time.perf_counter() - self.start_time, 1) if (self.is_recording and self.start_time) else 0.0
+            return {
+                "is_recording": self.is_recording,
+                "file_path": self.file_path if self.is_recording else "",
+                "filename": self.filename if self.is_recording else "",
+                "records_count": self.record_count if self.is_recording else 0,
+                "duration_sec": duration
+            }
+
+
 class WifiMonitor:
     """Manages Native WiFi queries, AP filtering, and roaming detection."""
 
-    def __init__(self, target_ssid=None):
+    def __init__(self, target_ssid=None, logs_dir="logs"):
         self.auto_ssid = (target_ssid is None or str(target_ssid).strip() == "" or str(target_ssid).strip().lower() == "auto")
         self.target_ssid = None if self.auto_ssid else str(target_ssid).strip()
         self.handle = wintypes.HANDLE()
@@ -158,6 +293,10 @@ class WifiMonitor:
         self.drop_start_time = None
         self.recent_pings = []
 
+        # Session logger for CSV export
+        self.logger = SessionLogger(logs_dir=logs_dir)
+        self.log_sample_counter = 0
+
         self._init_wlan()
 
     def _init_wlan(self):
@@ -180,8 +319,10 @@ class WifiMonitor:
             raise RuntimeError("No Wi-Fi interface found on the system.")
 
     def close(self):
-        """Clean up handles."""
+        """Clean up handles and finalize active recording."""
         self.running = False
+        if hasattr(self, 'logger') and self.logger.is_recording:
+            self.logger.stop()
         if self.handle:
             wlan.WlanCloseHandle(self.handle, None)
             self.handle = None
@@ -453,6 +594,27 @@ class WifiMonitor:
                             }
                             self.roam_events.insert(0, event)
 
+                            # Log roam transition to CSV if recording
+                            if self.logger.is_recording:
+                                self.logger.log_entry({
+                                    "event_type": "ROAM",
+                                    "ssid": self.connected_ssid,
+                                    "connected_bssid": curr_bssid,
+                                    "channel": curr_ch,
+                                    "band": matched_active_ap["band"] if matched_active_ap else "",
+                                    "rssi_dbm": curr_rssi,
+                                    "link_quality": matched_active_ap.get("quality", "") if matched_active_ap else "",
+                                    "rx_rate_mbps": conn.get("rx_rate", "") if conn else "",
+                                    "tx_rate_mbps": conn.get("tx_rate", "") if conn else "",
+                                    "gateway_ip": self.gateway or "",
+                                    "ping_rtt_ms": self.last_ping_ms if self.last_ping_ms is not None else "",
+                                    "ping_status": self.ping_status,
+                                    "roam_latency_ms": latency,
+                                    "from_bssid": self.last_seen_bssid,
+                                    "from_channel": self.last_seen_channel,
+                                    "visible_aps_count": len(aps)
+                                })
+
                             # On roam, immediately refresh gateway (possible VLAN/subnet change)
                             fresh_gw = get_default_gateway()
                             if fresh_gw:
@@ -462,10 +624,46 @@ class WifiMonitor:
                         self.last_seen_channel = curr_ch
                         self.last_seen_rssi = curr_rssi
 
+                # Periodic telemetry logging (every ~300ms = 3 ticks) when recording
+                if self.logger.is_recording:
+                    self.log_sample_counter += 1
+                    if self.log_sample_counter >= 3:
+                        self.log_sample_counter = 0
+                        self.logger.log_entry({
+                            "event_type": "SAMPLE",
+                            "ssid": self.connected_ssid,
+                            "connected_bssid": curr_bssid,
+                            "channel": matched_active_ap["channel"] if matched_active_ap else "",
+                            "band": matched_active_ap["band"] if matched_active_ap else "",
+                            "rssi_dbm": matched_active_ap["rssi"] if matched_active_ap else "",
+                            "link_quality": matched_active_ap.get("quality", "") if matched_active_ap else "",
+                            "rx_rate_mbps": conn.get("rx_rate", "") if conn else "",
+                            "tx_rate_mbps": conn.get("tx_rate", "") if conn else "",
+                            "gateway_ip": self.gateway or "",
+                            "ping_rtt_ms": self.last_ping_ms if self.last_ping_ms is not None else "",
+                            "ping_status": self.ping_status,
+                            "roam_latency_ms": "",
+                            "from_bssid": "",
+                            "from_channel": "",
+                            "visible_aps_count": len(aps)
+                        })
+
             except Exception:
                 pass
 
             time.sleep(0.1)
+
+    def start_recording(self):
+        """Begin saving telemetry log entries to a CSV file."""
+        return self.logger.start()
+
+    def stop_recording(self):
+        """Stop logging and finalize the active CSV file."""
+        return self.logger.stop()
+
+    def get_recording_state(self):
+        """Get current recording status and file info."""
+        return self.logger.get_state()
 
     def start(self):
         """Start background polling and ping monitoring threads."""
@@ -501,5 +699,6 @@ class WifiMonitor:
                 "roam_events": self.roam_events[:50],
                 "gateway": self.gateway,
                 "ping_ms": self.last_ping_ms,
-                "ping_status": self.ping_status
+                "ping_status": self.ping_status,
+                "recording": self.logger.get_state()
             }
