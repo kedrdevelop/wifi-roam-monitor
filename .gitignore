@@ -33,3 +33,4 @@ analysis/venv/
 build/
 dist/
 *.exe
+*.lnk
