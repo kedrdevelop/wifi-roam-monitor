@@ -28,3 +28,8 @@ logs/
 *.csv
 analysis/reports/
 analysis/venv/
+
+# PyInstaller build artifacts
+build/
+dist/
+*.exe

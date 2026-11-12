@@ -43,6 +43,16 @@ pip install -r requirements.txt
 
 ### 2. Running the Application
 
+#### Option A: Standalone Executable (.exe)
+No Python installation is required. Simply launch:
+- Double-click **`WiFiRoamingSentinel.exe`** (or `start.bat`)
+
+To recompile the standalone `.exe` at any time, run:
+```powershell
+.\build.bat
+```
+
+#### Option B: From Python Source
 Launch in default **Auto Mode** (automatically monitors whichever network you are connected to):
 ```powershell
 python app.py
@@ -101,12 +111,18 @@ legend('RSSI (dBm)', 'Roam Event');
 ## Project Structure
 
 ```text
+├── WiFiRoamingSentinel.exe # Standalone portable Windows executable (PyInstaller)
+├── WiFiRoamingSentinel.spec# PyInstaller build specification
+├── build.bat              # One-click build script to compile standalone .exe
+├── start.bat              # One-click Windows launcher (prefers .exe, falls back to Python)
 ├── app.py                 # Application entry point & PyWebView JS API bridge
 ├── wifi_engine.py         # Native Windows WLAN API engine & telemetry monitor
+├── generate_icon.py       # Multi-resolution application icon generator
 ├── test_verification.py   # Headless validation script for WLAN API functionality
-├── start.bat              # One-click Windows launcher batch script
 ├── requirements.txt       # Python package dependencies
 ├── LICENSE                # License and usage terms
+├── assets/
+│   └── icon.ico           # Multi-resolution application icon (16x16 to 256x256)
 ├── analysis/              # Log analysis & visualization toolkit
 │   ├── analyze.py         # Automated statistical analyzer & multi-panel chart renderer
 │   ├── run_analysis.bat   # One-click analysis launcher (activates local venv)
