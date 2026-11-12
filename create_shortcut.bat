@@ -12,3 +12,4 @@ if exist "%~dp0Wi-Fi Roaming Sentinel.lnk" (
 )
 echo.
 pause
+
