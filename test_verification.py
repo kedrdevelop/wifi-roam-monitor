@@ -22,6 +22,7 @@ def run_checks():
         print(f"  AP: {ap['bssid']} | Ch {ap['channel']} ({ap['band']}) | {ap['rssi']} dBm | Connected: {ap['is_connected']}")
         
     print("Gateway:", st["gateway"], "| Ping:", st["ping_ms"], "ms | Status:", st["ping_status"])
+    print("Call Quality:", st.get("call_quality"))
     print("Trigger scan:", api.trigger_scan())
     print("Clear events:", api.clear_events())
 

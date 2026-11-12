@@ -243,8 +243,8 @@
         /* Metrics Top Grid */
         .metrics-grid {
             display: grid;
-            grid-template-columns: 1.5fr 1fr 1fr;
-            gap: 14px;
+            grid-template-columns: 1.25fr 1fr 1fr 1fr;
+            gap: 12px;
         }
 
         .card {
@@ -608,6 +608,19 @@
                 </div>
             </div>
 
+            <!-- Teams / Call Health Card -->
+            <div class="card" id="callHealthCard">
+                <div class="card-header">
+                    <span class="card-label">Teams / Call Health</span>
+                    <span class="badge" id="callRatingBadge" style="background: rgba(16, 185, 129, 0.15); color: var(--emerald-500); font-weight: 700;">EXCELLENT</span>
+                </div>
+                <div class="stat-value-large" id="callPacketLossVal" style="color: var(--emerald-500);">0.0% LOSS</div>
+                <div class="stat-subtext" id="callQualitySummary">Teams: Flawless Voice & Video</div>
+                <div class="meta-row" style="margin-top: 4px;">
+                    <span class="stat-subtext" id="callJitterStats">Jitter: ±0.0 ms • Drops: 0</span>
+                </div>
+            </div>
+
             <!-- Network Overview -->
             <div class="card">
                 <div class="card-header">
@@ -957,6 +970,37 @@
             }
             if (data.last_roam_time) {
                 document.getElementById('lastRoamTime').innerText = `Last Roam: ${data.last_roam_time}`;
+            }
+
+            // 3.5 Teams / Call Health Card
+            if (data.call_quality) {
+                const cq = data.call_quality;
+                const lossEl = document.getElementById('callPacketLossVal');
+                const ratingBadge = document.getElementById('callRatingBadge');
+                const summaryEl = document.getElementById('callQualitySummary');
+                const jitterEl = document.getElementById('callJitterStats');
+
+                if (lossEl) {
+                    lossEl.innerText = `${cq.packet_loss_pct}% LOSS`;
+                    if (cq.packet_loss_pct === 0) {
+                        lossEl.style.color = 'var(--emerald-500)';
+                    } else if (cq.packet_loss_pct <= 2.0) {
+                        lossEl.style.color = 'var(--amber-500)';
+                    } else {
+                        lossEl.style.color = 'var(--rose-500)';
+                    }
+                }
+
+                if (ratingBadge) {
+                    ratingBadge.innerText = cq.rating;
+                    ratingBadge.style.color = cq.rating_color;
+                    ratingBadge.style.backgroundColor = cq.rating === 'POOR' 
+                        ? 'rgba(244, 63, 94, 0.15)' 
+                        : (cq.rating === 'FAIR' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)');
+                }
+
+                if (summaryEl) summaryEl.innerText = cq.summary;
+                if (jitterEl) jitterEl.innerText = `Jitter: ±${cq.jitter_ms} ms • Drops: ${cq.dropped_packets}/${cq.total_packets}`;
             }
 
             // 4. Visible APs List

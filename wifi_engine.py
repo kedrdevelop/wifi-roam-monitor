@@ -278,7 +278,7 @@ class WifiMonitor:
         self.last_ping_ms = None
         self.ping_status = "Unknown"
         self.consecutive_drops = 0
-        self.lock = threading.Lock()
+        self.lock = threading.RLock()
         self.running = False
         
         # Roaming transition tracking state
@@ -496,7 +496,7 @@ class WifiMonitor:
                         "success": success,
                         "rtt": self.last_ping_ms
                     })
-                    if len(self.recent_pings) > 20:
+                    if len(self.recent_pings) > 50:
                         self.recent_pings.pop(0)
 
                 # If drops occur consecutively, check if gateway IP changed
@@ -665,6 +665,63 @@ class WifiMonitor:
         """Get current recording status and file info."""
         return self.logger.get_state()
 
+    def get_call_quality_metrics(self):
+        """Calculate real-time packet loss, jitter, and VoIP/Teams suitability rating."""
+        with self.lock:
+            pings = list(self.recent_pings)
+
+        if not pings:
+            return {
+                "packet_loss_pct": 0.0,
+                "total_packets": 0,
+                "dropped_packets": 0,
+                "jitter_ms": 0.0,
+                "avg_ping_ms": 0.0,
+                "rating": "WAITING",
+                "rating_color": "var(--text-muted)",
+                "summary": "Waiting for network telemetry..."
+            }
+
+        total = len(pings)
+        dropped = sum(1 for p in pings if not p["success"])
+        loss_pct = (dropped / total) * 100.0
+
+        successful_rtts = [p["rtt"] for p in pings if p["success"] and p["rtt"] is not None]
+        avg_ping = sum(successful_rtts) / len(successful_rtts) if successful_rtts else 0.0
+
+        jitter = 0.0
+        if len(successful_rtts) >= 2:
+            diffs = [abs(successful_rtts[i] - successful_rtts[i - 1]) for i in range(1, len(successful_rtts))]
+            jitter = sum(diffs) / len(diffs)
+
+        if loss_pct == 0.0 and jitter < 15.0:
+            rating = "EXCELLENT"
+            rating_color = "var(--emerald-500)"
+            summary = "Teams: Flawless Voice & Video"
+        elif loss_pct <= 1.0 and jitter < 30.0:
+            rating = "GOOD"
+            rating_color = "var(--emerald-500)"
+            summary = "Teams: Clear & Stable Audio"
+        elif loss_pct <= 3.0 or jitter < 50.0:
+            rating = "FAIR"
+            rating_color = "var(--amber-500)"
+            summary = "Teams: Minor Stutter / Glitches"
+        else:
+            rating = "POOR"
+            rating_color = "var(--rose-500)"
+            summary = "Teams: High Loss / Robot Voice"
+
+        return {
+            "packet_loss_pct": round(loss_pct, 1),
+            "total_packets": total,
+            "dropped_packets": dropped,
+            "jitter_ms": round(jitter, 1),
+            "avg_ping_ms": round(avg_ping, 1),
+            "rating": rating,
+            "rating_color": rating_color,
+            "summary": summary
+        }
+
     def start(self):
         """Start background polling and ping monitoring threads."""
         self.running = True
@@ -700,5 +757,6 @@ class WifiMonitor:
                 "gateway": self.gateway,
                 "ping_ms": self.last_ping_ms,
                 "ping_status": self.ping_status,
-                "recording": self.logger.get_state()
+                "recording": self.logger.get_state(),
+                "call_quality": self.get_call_quality_metrics()
             }
