@@ -1,21 +1,21 @@
 @echo off
 setlocal enabledelayedexpansion
-title Wi-Fi Roaming Sentinel - Setup & Run
+title Wi-Fi Roaming Sentinel - Setup and Run
 cd /d "%~dp0"
 
 echo ========================================================
-echo        Wi-Fi Roaming Sentinel - Setup & Run
+echo        Wi-Fi Roaming Sentinel - Setup and Run
 echo ========================================================
 echo.
 
 :: 1. Check if Python is installed and accessible
 set "PYTHON_CMD="
-where python >nul 2>&1
+
+python --version >nul 2>&1
 if %ERRORLEVEL% EQU 0 (
-    for /f "tokens=*" %%i in ('python -c "import sys; print(sys.executable)" 2^>nul') do set "PYTHON_CMD=%%i"
+    set "PYTHON_CMD=python"
 )
 
-:: Check default user install location if 'where python' failed
 if not defined PYTHON_CMD (
     if exist "%LocalAppData%\Programs\Python\Python312\python.exe" (
         set "PYTHON_CMD=%LocalAppData%\Programs\Python\Python312\python.exe"
@@ -39,7 +39,7 @@ if not defined PYTHON_CMD (
         exit /b 1
     )
     
-    echo       Installing Python silently (User-level, no administrative elevation needed)...
+    echo       Installing Python silently [User-level, no administrative elevation needed]...
     "%PY_INSTALLER%" /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 Include_doc=0 Include_tcltk=0 SimpleInstall=1
     
     timeout /t 5 /nobreak >nul
@@ -55,15 +55,15 @@ if not defined PYTHON_CMD (
         exit /b 1
     )
 ) else (
-    echo [1/3] Python detected: !PYTHON_CMD!
+    for /f "tokens=*" %%v in ('!PYTHON_CMD! --version 2^>^&1') do echo [1/3] Python detected: %%v
 )
 
 :: 3. Setup isolated virtual environment in venv/
 echo.
 echo [2/3] Setting up local isolated environment and dependencies...
 if not exist "venv\Scripts\python.exe" (
-    echo       Creating virtual environment in venv\...
-    "!PYTHON_CMD!" -m venv venv
+    echo       Creating virtual environment in venv...
+    !PYTHON_CMD! -m venv venv
     if %ERRORLEVEL% NEQ 0 (
         echo [ERROR] Failed to create virtual environment.
         pause
@@ -71,7 +71,7 @@ if not exist "venv\Scripts\python.exe" (
     )
 )
 
-echo       Verifying required packages (requirements.txt)...
+echo       Verifying required packages [requirements.txt]...
 call venv\Scripts\python.exe -m pip install --quiet --upgrade pip
 call venv\Scripts\python.exe -m pip install --quiet -r requirements.txt
 if %ERRORLEVEL% NEQ 0 (
@@ -91,4 +91,3 @@ if %ERRORLEVEL% NEQ 0 (
     echo Application exited with code %ERRORLEVEL%.
     pause
 )
-

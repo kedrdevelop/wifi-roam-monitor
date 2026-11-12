@@ -1,17 +1,17 @@
 @echo off
 setlocal enabledelayedexpansion
-title Wi-Fi Roaming Sentinel - Cleanup & Uninstall
+title Wi-Fi Roaming Sentinel - Cleanup and Uninstall
 cd /d "%~dp0"
 
 echo ========================================================
-echo       Wi-Fi Roaming Sentinel - Cleanup & Uninstall
+echo       Wi-Fi Roaming Sentinel - Cleanup and Uninstall
 echo ========================================================
 echo.
 echo This script will remove:
-echo   - Local virtual environment (venv/) and all installed packages
-echo   - Temporary Python cache files (__pycache__)
+echo   - Local virtual environment [venv/] and all installed packages
+echo   - Temporary Python cache files [__pycache__]
 if exist ".python_installed_marker" (
-echo   - Standalone Python 3.12 installation (installed by setup_and_run.bat)
+    echo   - Standalone Python 3.12 installation [installed by setup_and_run.bat]
 )
 echo.
 set /p CONFIRM="Are you sure you want to proceed with cleanup? (Y/N): "
@@ -22,7 +22,7 @@ if /i not "!CONFIRM!"=="Y" (
 
 echo.
 :: 1. Remove local virtual environment and package caches
-echo [1/3] Removing local virtual environment (venv/) and dependencies...
+echo [1/3] Removing local virtual environment [venv/] and dependencies...
 if exist "venv" (
     rmdir /s /q "venv" 2>nul
     if exist "venv" (
@@ -35,7 +35,7 @@ if exist "venv" (
 )
 
 :: 2. Remove __pycache__ and bytecode
-echo [2/3] Cleaning bytecode caches (__pycache__)...
+echo [2/3] Cleaning bytecode caches [__pycache__]...
 for /d /r . %%d in (__pycache__) do @if exist "%%d" rd /s /q "%%d" 2>nul
 
 :: 3. Check if Python was installed by setup_and_run.bat
@@ -74,4 +74,3 @@ echo All installed dependencies and temporary files removed.
 echo ========================================================
 echo.
 pause
-
