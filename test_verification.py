@@ -3,13 +3,17 @@ from wifi_engine import WifiMonitor
 import time
 
 def run_checks():
-    m = WifiMonitor("MyWifi")
+    # Test Auto-Detection Mode (default: tracks any currently connected Wi-Fi network)
+    print("--- Testing Auto-Detection Mode ---")
+    m = WifiMonitor()
     m.start()
     api = RoamingApi(m)
     time.sleep(1.2)
     st = api.get_state()
     
-    print("Target SSID:", st["target_ssid"])
+    print("Auto SSID Mode:", st["auto_ssid"])
+    print("Detected Connected SSID:", st["connected_ssid"])
+    print("Effective Target SSID:", st["effective_ssid"])
     print("Connected BSSID:", st["connected_bssid"])
     print("Active AP:", st["active_ap"])
     print("Visible APs count:", len(st["visible_aps"]))

@@ -29,9 +29,11 @@ class RoamingApi:
 
 
 def main():
-    target_ssid = "MyWifi"
-    if len(sys.argv) > 1:
-        target_ssid = sys.argv[1]
+    target_ssid = None
+    if len(sys.argv) > 1 and sys.argv[1].strip():
+        arg = sys.argv[1].strip()
+        if arg.lower() not in ("--auto", "-a", "auto"):
+            target_ssid = arg
 
     monitor = WifiMonitor(target_ssid=target_ssid)
     monitor.start()
@@ -41,8 +43,9 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     ui_path = os.path.join(script_dir, "ui", "index.html")
 
+    title_suffix = f" — [{target_ssid}]" if target_ssid else " — [Auto]"
     window = webview.create_window(
-        title=f"Wi-Fi Roaming Sentinel — [{target_ssid}]",
+        title=f"Wi-Fi Roaming Sentinel{title_suffix}",
         url=ui_path,
         js_api=api,
         width=1120,

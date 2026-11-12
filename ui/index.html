@@ -472,7 +472,7 @@
                 <div>
                     <div class="brand-title">
                         Wi-Fi Roaming Sentinel
-                        <span class="target-tag">Target: MyWifi</span>
+                        <span class="target-tag" id="targetTag">Target: Auto</span>
                     </div>
                 </div>
             </div>
@@ -529,13 +529,13 @@
             <!-- Network Overview -->
             <div class="card">
                 <div class="card-header">
-                    <span class="card-label">MyWifi Environment</span>
+                    <span class="card-label" id="envCardLabel">Environment</span>
                     <span class="badge" id="visibleApsCount">0 APs VISIBLE</span>
                 </div>
                 <div class="stat-value-large" id="strongestRssi" style="color: var(--cyan-400);">-- dBm</div>
-                <div class="stat-subtext">Peak signal among visible MyWifi APs</div>
+                <div class="stat-subtext" id="envSubtext">Peak signal among visible APs</div>
                 <div class="meta-row" style="margin-top: 4px;">
-                    <span class="stat-subtext" id="activeBand">Band: 5 GHz</span>
+                    <span class="stat-subtext" id="activeBand">Band: --</span>
                 </div>
             </div>
         </div>
@@ -778,6 +778,25 @@
         function updateUI(data) {
             if (!data) return;
 
+            // 0. Update Target Tag & Title & Environment
+            const activeSsid = data.connected_ssid || data.target_ssid || '';
+            const targetTag = document.getElementById('targetTag');
+            if (targetTag) {
+                if (data.auto_ssid) {
+                    targetTag.innerText = data.connected_ssid ? `Auto: ${data.connected_ssid}` : 'Auto (Searching...)';
+                } else {
+                    targetTag.innerText = `Target: ${data.target_ssid}`;
+                }
+            }
+            if (activeSsid) {
+                document.title = `Wi-Fi Roaming Sentinel — [${activeSsid}]`;
+            }
+
+            const envLabel = document.getElementById('envCardLabel');
+            if (envLabel) {
+                envLabel.innerText = `${activeSsid || 'Wi-Fi'} Environment`;
+            }
+
             // 1. Gateway & Ping Status
             document.getElementById('gatewayStatus').innerText = `GW: ${data.gateway || '--'}`;
             const pingVal = document.getElementById('pingVal');
@@ -801,8 +820,14 @@
             const activeSpeedEl = document.getElementById('activeSpeed');
             const activeRssiEl = document.getElementById('activeRssi');
             const activeBar = document.getElementById('activeSignalBar');
+            const activeStatusBadge = document.getElementById('activeStatusBadge');
 
             if (activeAp) {
+                if (activeStatusBadge) {
+                    activeStatusBadge.innerText = 'CONNECTED';
+                    activeStatusBadge.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
+                    activeStatusBadge.style.color = 'var(--emerald-500)';
+                }
                 activeBssidEl.innerText = activeAp.bssid.toUpperCase();
                 activeChEl.innerText = `Ch ${activeAp.channel} (${activeAp.band})`;
                 activeSpeedEl.innerText = `${data.connected_info?.rx_rate || 574} Mbps`;
@@ -817,10 +842,17 @@
 
                 document.getElementById('activeBand').innerText = `Band: ${activeAp.band} • Channel ${activeAp.channel}`;
             } else {
+                if (activeStatusBadge) {
+                    activeStatusBadge.innerText = data.connected_bssid ? 'LINK ONLY' : 'DISCONNECTED';
+                    activeStatusBadge.style.backgroundColor = 'rgba(244, 63, 94, 0.15)';
+                    activeStatusBadge.style.color = 'var(--rose-500)';
+                }
                 activeBssidEl.innerText = data.connected_bssid ? data.connected_bssid.toUpperCase() : "DISCONNECTED";
                 activeChEl.innerText = "Ch --";
+                activeSpeedEl.innerText = "-- Mbps";
                 activeRssiEl.innerText = "-- dBm";
                 activeBar.style.width = '0%';
+                document.getElementById('activeBand').innerText = 'Band: -- • Standby';
             }
 
             // Check for roam chime
@@ -851,7 +883,10 @@
 
             const apListEl = document.getElementById('apList');
             if (aps.length === 0) {
-                apListEl.innerHTML = '<div class="empty-placeholder">No MyWifi access points currently visible.</div>';
+                const emptyMsg = activeSsid 
+                    ? `No access points currently visible for "${activeSsid}".`
+                    : 'Connect to a Wi-Fi network to begin monitoring.';
+                apListEl.innerHTML = `<div class="empty-placeholder">${emptyMsg}</div>`;
             } else {
                 apListEl.innerHTML = aps.map(ap => {
                     const isConn = ap.is_connected;

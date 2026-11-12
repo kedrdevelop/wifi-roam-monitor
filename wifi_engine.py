@@ -104,22 +104,22 @@ def freq_to_channel(freq_khz):
 def get_default_gateway():
     """Discover IPv4 default gateway address via route command."""
     try:
-        output = subprocess.check_output(['netsh', 'interface', 'ipv4', 'show', 'route'], text=True, stderr=subprocess.DEVNULL)
+        output = subprocess.check_output(['route', 'print', '0.0.0.0'], text=True, stderr=subprocess.DEVNULL)
         for line in output.splitlines():
-            if '0.0.0.0/0' in line:
-                parts = line.split()
-                if len(parts) >= 5:
-                    return parts[-1]
+            parts = line.strip().split()
+            if len(parts) >= 5 and parts[0] == '0.0.0.0' and parts[1] == '0.0.0.0':
+                return parts[2]
     except Exception:
         pass
-    return "10.166.20.1"
+    return "192.168.1.1"
 
 
 class WifiMonitor:
-    """Manages Native WiFi queries, AP filtering for MyWifi, and roaming detection."""
+    """Manages Native WiFi queries, AP filtering, and roaming detection."""
 
-    def __init__(self, target_ssid="MyWifi"):
-        self.target_ssid = target_ssid
+    def __init__(self, target_ssid=None):
+        self.auto_ssid = (target_ssid is None or str(target_ssid).strip() == "" or str(target_ssid).strip().lower() == "auto")
+        self.target_ssid = None if self.auto_ssid else str(target_ssid).strip()
         self.handle = wintypes.HANDLE()
         self.guid = None
         self.connected_bssid = ""
@@ -223,8 +223,8 @@ class WifiMonitor:
         finally:
             wlan.WlanFreeMemory(ppData)
 
-    def query_visible_aps(self):
-        """Extract all visible BSS entries filtered strictly for target_ssid."""
+    def query_visible_aps(self, filter_ssid=None):
+        """Extract all visible BSS entries filtered for the active or target SSID."""
         if not self.handle or not self.guid:
             return []
 
@@ -242,6 +242,13 @@ class WifiMonitor:
         if ret != 0 or not pBssList:
             return []
 
+        effective_ssid = filter_ssid
+        if effective_ssid is None:
+            if not self.auto_ssid and self.target_ssid:
+                effective_ssid = self.target_ssid
+            else:
+                effective_ssid = self.connected_ssid
+
         results = []
         try:
             bssList = pBssList.contents
@@ -252,19 +259,24 @@ class WifiMonitor:
                 entry = WLAN_BSS_ENTRY.from_address(pEntries + i * entry_size)
                 ssid = entry.dot11Ssid.ucSSID[:entry.dot11Ssid.uSSIDLength].decode('utf-8', errors='ignore')
 
-                if ssid.lower() == self.target_ssid.lower():
-                    bssid = ':'.join(f'{b:02x}' for b in entry.dot11Bssid).lower()
-                    ch, band = freq_to_channel(entry.ulChCenterFrequency)
-                    
-                    results.append({
-                        "bssid": bssid,
-                        "ssid": ssid,
-                        "rssi": entry.lRssi,  # Exact dBm
-                        "quality": entry.uLinkQuality,
-                        "channel": ch,
-                        "band": band,
-                        "freq_mhz": entry.ulChCenterFrequency / 1000.0
-                    })
+                if effective_ssid:
+                    if ssid.lower() != effective_ssid.lower():
+                        continue
+                elif not ssid:
+                    continue
+
+                bssid = ':'.join(f'{b:02x}' for b in entry.dot11Bssid).lower()
+                ch, band = freq_to_channel(entry.ulChCenterFrequency)
+                
+                results.append({
+                    "bssid": bssid,
+                    "ssid": ssid,
+                    "rssi": entry.lRssi,  # Exact dBm
+                    "quality": entry.uLinkQuality,
+                    "channel": ch,
+                    "band": band,
+                    "freq_mhz": entry.ulChCenterFrequency / 1000.0
+                })
         finally:
             wlan.WlanFreeMemory(pBssList)
 
@@ -332,6 +344,24 @@ class WifiMonitor:
         while self.running:
             try:
                 conn = self.query_connected()
+                curr_bssid = conn.get("bssid", "") if conn else ""
+                curr_ssid = conn.get("ssid", "") if conn else ""
+                is_connected = conn.get("connected", False) if conn else False
+
+                with self.lock:
+                    if is_connected and curr_ssid:
+                        if curr_ssid != self.connected_ssid:
+                            self.connected_ssid = curr_ssid
+                            new_gw = get_default_gateway()
+                            if new_gw:
+                                self.gateway = new_gw
+                            if self.last_seen_bssid != "":
+                                self.last_seen_bssid = ""
+                    elif not is_connected:
+                        self.connected_ssid = ""
+                        self.connected_bssid = ""
+                        self.last_seen_bssid = ""
+
                 aps = self.query_visible_aps()
 
                 scan_counter += 1
@@ -341,13 +371,11 @@ class WifiMonitor:
 
                 with self.lock:
                     self.connected_info = conn
-                    curr_bssid = conn.get("bssid", "") if conn else ""
                     self.connected_bssid = curr_bssid
-                    self.connected_ssid = conn.get("ssid", "") if conn else ""
 
                     matched_active_ap = None
                     for ap in aps:
-                        is_active = (ap["bssid"] == curr_bssid)
+                        is_active = (ap["bssid"] == curr_bssid and curr_bssid != "")
                         ap["is_connected"] = is_active
                         if is_active:
                             matched_active_ap = ap
@@ -403,14 +431,19 @@ class WifiMonitor:
         with self.lock:
             active_ap = None
             for ap in self.visible_aps:
-                if ap["bssid"] == self.connected_bssid:
+                if ap["bssid"] == self.connected_bssid and self.connected_bssid != "":
                     active_ap = ap
                     break
 
+            effective_ssid = self.target_ssid if not self.auto_ssid else self.connected_ssid
+
             return {
                 "target_ssid": self.target_ssid,
+                "auto_ssid": self.auto_ssid,
                 "connected_ssid": self.connected_ssid,
+                "effective_ssid": effective_ssid,
                 "connected_bssid": self.connected_bssid,
+                "connected_info": self.connected_info,
                 "active_ap": active_ap,
                 "visible_aps": self.visible_aps,
                 "roam_count": self.roam_count,
