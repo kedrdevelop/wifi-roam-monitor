@@ -60,3 +60,4 @@ venv\Scripts\python.exe analyze.py --no-gui
 ```cmd
 venv\Scripts\python.exe analyze.py -o "reports\my_test_plot.png"
 ```
+
