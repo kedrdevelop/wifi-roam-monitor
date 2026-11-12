@@ -107,6 +107,12 @@ legend('RSSI (dBm)', 'Roam Event');
 ├── start.bat              # One-click Windows launcher batch script
 ├── requirements.txt       # Python package dependencies
 ├── LICENSE                # License and usage terms
+├── analysis/              # Log analysis & visualization toolkit
+│   ├── analyze.py         # Automated statistical analyzer & multi-panel chart renderer
+│   ├── run_analysis.bat   # One-click analysis launcher (activates local venv)
+│   ├── requirements.txt   # Analysis dependencies (pandas, matplotlib, seaborn)
+│   └── README.md          # Analysis guide & usage instructions
+├── logs/                  # Recorded CSV telemetry sessions (git-ignored)
 ├── ui/
 │   └── index.html         # Desktop dashboard interface (HTML/CSS/JS)
 └── README.md              # Project documentation

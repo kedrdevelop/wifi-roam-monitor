@@ -26,3 +26,5 @@ $RECYCLE.BIN/
 # Session recordings and log dumps
 logs/
 *.csv
+analysis/reports/
+analysis/venv/
