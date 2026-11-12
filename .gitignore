@@ -34,4 +34,7 @@ build/
 dist/
 *.exe
 *.lnk
+# Temporary runtime marker and error logs
 .python_installed_marker
+error.txt
+*.log
