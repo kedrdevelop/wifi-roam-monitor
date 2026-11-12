@@ -34,3 +34,4 @@ build/
 dist/
 *.exe
 *.lnk
+.python_installed_marker

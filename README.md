@@ -31,39 +31,38 @@ The application monitors transitions between Access Points (BSSIDs), measures ha
 
 ## Getting Started
 
-### 1. Installation
+### 1. One-Click Setup & Launch (Recommended)
 
-Clone the repository and install required Python packages:
+Simply double-click **`start.bat`** (or `setup_and_run.bat`):
+- **Automatic Python Detection**: If Python is not installed on the system, the script automatically downloads and installs official Python 3.12 (user-level, no administrator elevation required).
+- **Isolated Dependencies**: Creates a project virtual environment (`venv/`) and installs `requirements.txt`.
+- **Immediate Launch**: Opens the Wi-Fi Roaming Sentinel desktop monitor.
+
+### 2. Manual Installation & Execution
+
+Alternatively, clone the repository and run manually:
 
 ```powershell
 git clone https://github.com/kedrdevelop/wifi-roam-monitor.git
 cd wifi-roam-monitor
 pip install -r requirements.txt
-```
-
-### 2. Running the Application
-
-#### Option A: Standalone Executable (.exe)
-No Python installation is required. Simply launch:
-- Double-click **`WiFiRoamingSentinel.exe`** (or `start.bat`)
-
-To recompile the standalone `.exe` at any time, run:
-```powershell
-.\build.bat
-```
-
-#### Option B: From Python Source
-Launch in default **Auto Mode** (automatically monitors whichever network you are connected to):
-```powershell
 python app.py
 ```
 
-Or lock onto a specific target network SSID:
+To monitor a specific network SSID:
 ```powershell
 python app.py "YourNetworkSSID"
 ```
 
-Alternatively, double-click `start.bat` to launch immediately.
+### 3. Complete Teardown & Uninstallation
+
+To remove all installed dependencies or uninstall Python when finished testing on a machine, run:
+- Double-click **`cleanup.bat`**
+
+This cleanly deletes:
+- The project's virtual environment (`venv/`) and all installed libraries.
+- All temporary Python bytecode caches (`__pycache__`).
+- The standalone Python 3.12 installation if it was installed by `setup_and_run.bat` (pre-existing system Python installations are left completely untouched).
 
 ---
 
@@ -111,13 +110,11 @@ legend('RSSI (dBm)', 'Roam Event');
 ## Project Structure
 
 ```text
-├── WiFiRoamingSentinel.exe # Standalone portable Windows executable (PyInstaller)
-├── WiFiRoamingSentinel.spec# PyInstaller build specification
-├── build.bat              # One-click build script to compile standalone .exe
-├── start.bat              # One-click Windows launcher (prefers .exe, falls back to Python)
+├── start.bat              # One-click Windows launcher (calls setup_and_run.bat)
+├── setup_and_run.bat      # Auto-installer for Python & dependencies + immediate launch
+├── cleanup.bat            # Complete teardown script (uninstalls venv and/or Python)
 ├── app.py                 # Application entry point & PyWebView JS API bridge
 ├── wifi_engine.py         # Native Windows WLAN API engine & telemetry monitor
-├── generate_icon.py       # Multi-resolution application icon generator
 ├── test_verification.py   # Headless validation script for WLAN API functionality
 ├── requirements.txt       # Python package dependencies
 ├── LICENSE                # License and usage terms
