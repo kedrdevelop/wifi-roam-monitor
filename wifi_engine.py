@@ -350,7 +350,12 @@ class SessionLogger:
         "roam_latency_ms",
         "from_bssid",
         "from_channel",
-        "visible_aps_count"
+        "visible_aps_count",
+        "jitter_ms",
+        "packet_loss_pct",
+        "ping_sent",
+        "ping_dropped",
+        "ping_seq"
     ]
 
     def __init__(self, logs_dir="logs"):
@@ -441,7 +446,12 @@ class SessionLogger:
                     "roam_latency_ms": entry_dict.get("roam_latency_ms", ""),
                     "from_bssid": entry_dict.get("from_bssid", ""),
                     "from_channel": entry_dict.get("from_channel", ""),
-                    "visible_aps_count": entry_dict.get("visible_aps_count", 0)
+                    "visible_aps_count": entry_dict.get("visible_aps_count", 0),
+                    "jitter_ms": entry_dict.get("jitter_ms", ""),
+                    "packet_loss_pct": entry_dict.get("packet_loss_pct", ""),
+                    "ping_sent": entry_dict.get("ping_sent", ""),
+                    "ping_dropped": entry_dict.get("ping_dropped", ""),
+                    "ping_seq": entry_dict.get("ping_seq", "")
                 }
                 self.csv_writer.writerow(row)
                 self.file_handle.flush()
@@ -494,6 +504,9 @@ class WifiMonitor:
         self.last_drop_end_time = None
         self.last_drop_duration_ms = None
         self.recent_pings = []
+        self.ping_seq = 0
+        self.session_pings_sent = 0
+        self.session_pings_dropped = 0
 
         # Session logger for CSV export
         self.logger = SessionLogger(logs_dir=logs_dir)
@@ -579,12 +592,21 @@ class WifiMonitor:
             conn_attr = WLAN_CONNECTION_ATTRIBUTES.from_address(ppData.value)
             assoc = conn_attr.wlanAssociationAttributes
             ssid = assoc.dot11Ssid.ucSSID[:assoc.dot11Ssid.uSSIDLength].decode('utf-8', errors='ignore')
-            bssid = ':'.join(f'{b:02x}' for b in assoc.dot11Bssid)
-            
+            bssid = ':'.join(f'{b:02x}' for b in assoc.dot11Bssid).lower()
+            if bssid == "00:00:00:00:00:00":
+                return {
+                    "connected": False,
+                    "ssid": "",
+                    "bssid": "",
+                    "quality": 0,
+                    "rx_rate": 0,
+                    "tx_rate": 0
+                }
+
             return {
                 "connected": True,
                 "ssid": ssid,
-                "bssid": bssid.lower(),
+                "bssid": bssid,
                 "quality": assoc.wlanSignalQuality,
                 "rx_rate": assoc.ulRxRate / 1000.0,
                 "tx_rate": assoc.ulTxRate / 1000.0
@@ -653,6 +675,53 @@ class WifiMonitor:
         results.sort(key=lambda x: x["rssi"], reverse=True)
         return results
 
+    def _build_telemetry_entry(
+        self,
+        event_type,
+        conn=None,
+        active_ap=None,
+        aps_count=None,
+        roam_latency_ms="",
+        from_bssid="",
+        from_channel="",
+    ):
+        """Build a complete CSV telemetry row snapshot under lock."""
+        with self.lock:
+            if conn is None:
+                conn = self.connected_info
+            if active_ap is None and self.connected_bssid:
+                for ap in self.visible_aps:
+                    if ap["bssid"] == self.connected_bssid:
+                        active_ap = ap
+                        break
+            if aps_count is None:
+                aps_count = len(self.visible_aps)
+
+            cq = self.get_call_quality_metrics()
+            return {
+                "event_type": event_type,
+                "ssid": self.connected_ssid,
+                "connected_bssid": self.connected_bssid,
+                "channel": active_ap["channel"] if active_ap else "",
+                "band": active_ap["band"] if active_ap else "",
+                "rssi_dbm": active_ap["rssi"] if active_ap else "",
+                "link_quality": active_ap.get("quality", "") if active_ap else "",
+                "rx_rate_mbps": conn.get("rx_rate", "") if conn else "",
+                "tx_rate_mbps": conn.get("tx_rate", "") if conn else "",
+                "gateway_ip": self.gateway or "",
+                "ping_rtt_ms": self.last_ping_ms if self.last_ping_ms is not None else "",
+                "ping_status": self.ping_status,
+                "roam_latency_ms": roam_latency_ms,
+                "from_bssid": from_bssid,
+                "from_channel": from_channel,
+                "visible_aps_count": aps_count,
+                "jitter_ms": cq["jitter_ms"],
+                "packet_loss_pct": cq["packet_loss_pct"],
+                "ping_sent": self.session_pings_sent,
+                "ping_dropped": self.session_pings_dropped,
+                "ping_seq": self.ping_seq,
+            }
+
     def _ping_worker(self):
         """Continuously probes the gateway to measure packet latency and detect drops during roam."""
         while self.running:
@@ -668,7 +737,14 @@ class WifiMonitor:
                 success, rtt = icmp_ping(gw, timeout_ms=800)
 
                 now = time.time()
+                drop_entry = None
                 with self.lock:
+                    self.ping_seq += 1
+                    if self.logger.is_recording:
+                        self.session_pings_sent += 1
+                        if not success:
+                            self.session_pings_dropped += 1
+
                     if success:
                         self.consecutive_drops = 0
                         self.last_ping_ms = rtt
@@ -693,6 +769,12 @@ class WifiMonitor:
                     })
                     if len(self.recent_pings) > 50:
                         self.recent_pings.pop(0)
+
+                    if not success and self.logger.is_recording:
+                        drop_entry = self._build_telemetry_entry("DROP")
+
+                if drop_entry is not None:
+                    self.logger.log_entry(drop_entry)
 
                 # If drops occur consecutively, check if gateway IP changed
                 if not success and self.consecutive_drops >= 2:
@@ -796,24 +878,16 @@ class WifiMonitor:
 
                             # Log roam transition to CSV if recording
                             if self.logger.is_recording:
-                                self.logger.log_entry({
-                                    "event_type": "ROAM",
-                                    "ssid": self.connected_ssid,
-                                    "connected_bssid": curr_bssid,
-                                    "channel": curr_ch,
-                                    "band": matched_active_ap["band"] if matched_active_ap else "",
-                                    "rssi_dbm": curr_rssi,
-                                    "link_quality": matched_active_ap.get("quality", "") if matched_active_ap else "",
-                                    "rx_rate_mbps": conn.get("rx_rate", "") if conn else "",
-                                    "tx_rate_mbps": conn.get("tx_rate", "") if conn else "",
-                                    "gateway_ip": self.gateway or "",
-                                    "ping_rtt_ms": self.last_ping_ms if self.last_ping_ms is not None else "",
-                                    "ping_status": self.ping_status,
-                                    "roam_latency_ms": latency,
-                                    "from_bssid": self.last_seen_bssid,
-                                    "from_channel": self.last_seen_channel,
-                                    "visible_aps_count": len(aps)
-                                })
+                                roam_entry = self._build_telemetry_entry(
+                                    "ROAM",
+                                    conn=conn,
+                                    active_ap=matched_active_ap,
+                                    aps_count=len(aps),
+                                    roam_latency_ms=latency,
+                                    from_bssid=self.last_seen_bssid,
+                                    from_channel=self.last_seen_channel,
+                                )
+                                self.logger.log_entry(roam_entry)
 
                             # On roam, immediately refresh gateway (possible VLAN/subnet change)
                             fresh_gw = get_default_gateway(self.guid)
@@ -829,24 +903,13 @@ class WifiMonitor:
                     self.log_sample_counter += 1
                     if self.log_sample_counter >= 3:
                         self.log_sample_counter = 0
-                        self.logger.log_entry({
-                            "event_type": "SAMPLE",
-                            "ssid": self.connected_ssid,
-                            "connected_bssid": curr_bssid,
-                            "channel": matched_active_ap["channel"] if matched_active_ap else "",
-                            "band": matched_active_ap["band"] if matched_active_ap else "",
-                            "rssi_dbm": matched_active_ap["rssi"] if matched_active_ap else "",
-                            "link_quality": matched_active_ap.get("quality", "") if matched_active_ap else "",
-                            "rx_rate_mbps": conn.get("rx_rate", "") if conn else "",
-                            "tx_rate_mbps": conn.get("tx_rate", "") if conn else "",
-                            "gateway_ip": self.gateway or "",
-                            "ping_rtt_ms": self.last_ping_ms if self.last_ping_ms is not None else "",
-                            "ping_status": self.ping_status,
-                            "roam_latency_ms": "",
-                            "from_bssid": "",
-                            "from_channel": "",
-                            "visible_aps_count": len(aps)
-                        })
+                        sample_entry = self._build_telemetry_entry(
+                            "SAMPLE",
+                            conn=conn,
+                            active_ap=matched_active_ap,
+                            aps_count=len(aps),
+                        )
+                        self.logger.log_entry(sample_entry)
 
             except Exception:
                 pass
@@ -855,6 +918,9 @@ class WifiMonitor:
 
     def start_recording(self):
         """Begin saving telemetry log entries to a CSV file."""
+        with self.lock:
+            self.session_pings_sent = 0
+            self.session_pings_dropped = 0
         return self.logger.start()
 
     def stop_recording(self):
