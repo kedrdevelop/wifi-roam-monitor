@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wi-Fi Roaming Monitor — MyWifi</title>
+    <title>Wi-Fi Roaming Sentinel</title>
     <style>
         :root {
             --bg-primary: #0b0f19;
@@ -663,12 +663,12 @@
                             <line x1="6" y1="6" x2="6.01" y2="6"></line>
                             <line x1="6" y1="18" x2="6.01" y2="18"></line>
                         </svg>
-                        All Visible APs of "MyWifi"
+                        <span id="visibleApsPanelTitle">All Visible Access Points</span>
                     </div>
                     <span class="badge" id="apCountLabel">0 APs</span>
                 </div>
                 <div class="scrollable-list" id="apList">
-                    <div class="empty-placeholder">Scanning for MyWifi access points...</div>
+                    <div class="empty-placeholder">Scanning for access points...</div>
                 </div>
             </div>
 
@@ -892,6 +892,11 @@
                 envLabel.innerText = `${activeSsid || 'Wi-Fi'} Environment`;
             }
 
+            const visibleApsTitleEl = document.getElementById('visibleApsPanelTitle');
+            if (visibleApsTitleEl) {
+                visibleApsTitleEl.innerText = activeSsid ? `All Visible APs of "${activeSsid}"` : 'All Visible Access Points';
+            }
+
             // 1. Gateway & Ping Status
             document.getElementById('gatewayStatus').innerText = `GW: ${data.gateway || '--'}`;
             const pingVal = document.getElementById('pingVal');
@@ -930,7 +935,7 @@
                 }
                 activeBssidEl.innerText = activeAp.bssid.toUpperCase();
                 activeChEl.innerText = `Ch ${activeAp.channel} (${activeAp.band})`;
-                activeSpeedEl.innerText = `${data.connected_info?.rx_rate || 574} Mbps`;
+                activeSpeedEl.innerText = data.connected_info?.rx_rate ? `${Math.round(data.connected_info.rx_rate)} Mbps` : '-- Mbps';
                 activeRssiEl.innerText = `${activeAp.rssi} dBm`;
 
                 // Signal Color

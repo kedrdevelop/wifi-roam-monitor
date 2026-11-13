@@ -33,7 +33,7 @@ The application monitors transitions between Access Points (BSSIDs), measures ha
 
 ### 1. One-Click Setup & Launch (Recommended)
 
-Simply double-click **`start.bat`** (or `setup_and_run.bat`):
+Simply double-click **`setup_and_run.bat`**:
 - **Automatic Python Detection**: If Python is not installed on the system, the script automatically downloads and installs official Python 3.12 (user-level, no administrator elevation required).
 - **Isolated Dependencies**: Creates a project virtual environment (`venv/`) and installs `requirements.txt`.
 - **Immediate Launch**: Opens the Wi-Fi Roaming Sentinel desktop monitor.
@@ -60,7 +60,7 @@ To remove all installed dependencies or uninstall Python when finished testing o
 - Double-click **`cleanup.bat`**
 
 This cleanly deletes:
-- The project's virtual environment (`venv/`) and all installed libraries.
+- The project's virtual environments (`venv/` and `analysis/venv/`) and all installed libraries.
 - All temporary Python bytecode caches (`__pycache__`).
 - The standalone Python 3.12 installation if it was installed by `setup_and_run.bat` (pre-existing system Python installations are left completely untouched).
 
@@ -110,20 +110,17 @@ legend('RSSI (dBm)', 'Roam Event');
 ## Project Structure
 
 ```text
-├── start.bat              # One-click Windows launcher (calls setup_and_run.bat)
-├── setup_and_run.bat      # Auto-installer for Python & dependencies + immediate launch
-├── cleanup.bat            # Complete teardown script (uninstalls venv and/or Python)
+├── setup_and_run.bat      # One-click auto-installer for Python & dependencies + launch
+├── cleanup.bat            # Complete teardown script (uninstalls venvs and/or Python)
 ├── app.py                 # Application entry point & PyWebView JS API bridge
 ├── wifi_engine.py         # Native Windows WLAN API engine & telemetry monitor
 ├── test_verification.py   # Headless validation script for WLAN API functionality
 ├── requirements.txt       # Python package dependencies
 ├── LICENSE                # License and usage terms
-├── assets/
-│   └── icon.ico           # Multi-resolution application icon (16x16 to 256x256)
 ├── analysis/              # Log analysis & visualization toolkit
 │   ├── analyze.py         # Automated statistical analyzer & multi-panel chart renderer
-│   ├── run_analysis.bat   # One-click analysis launcher (activates local venv)
-│   ├── requirements.txt   # Analysis dependencies (pandas, matplotlib, seaborn)
+│   ├── run_analysis.bat   # One-click analysis launcher (creates venv & runs analysis)
+│   ├── requirements.txt   # Analysis dependencies (pandas, matplotlib)
 │   └── README.md          # Analysis guide & usage instructions
 ├── logs/                  # Recorded CSV telemetry sessions (git-ignored)
 ├── ui/

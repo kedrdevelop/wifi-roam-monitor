@@ -3,25 +3,7 @@ import sys
 import webview
 from wifi_engine import WifiMonitor
 
-# Redirect stdout/stderr when running as a windowed application without a console
-if sys.stdout is None:
-    sys.stdout = open(os.devnull, "w", encoding="utf-8")
-if sys.stderr is None:
-    sys.stderr = open(os.devnull, "w", encoding="utf-8")
-
-
-def get_resource_path(relative_path: str) -> str:
-    """Get absolute path to bundled resource (works in dev and PyInstaller onefile)."""
-    if hasattr(sys, "_MEIPASS"):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), relative_path)
-
-
-def get_app_dir() -> str:
-    """Get persistent directory where executable or script resides (for logs, reports)."""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(os.path.abspath(sys.executable))
-    return os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class RoamingApi:
@@ -74,14 +56,14 @@ def main():
         if arg.lower() not in ("--auto", "-a", "auto"):
             target_ssid = arg
 
-    # Use persistent directory next to the executable for logs
-    logs_dir = os.path.join(get_app_dir(), "logs")
+    # Store telemetry logs next to the application root
+    logs_dir = os.path.join(BASE_DIR, "logs")
     monitor = WifiMonitor(target_ssid=target_ssid, logs_dir=logs_dir)
     monitor.start()
 
     api = RoamingApi(monitor)
 
-    ui_path = get_resource_path(os.path.join("ui", "index.html"))
+    ui_path = os.path.join(BASE_DIR, "ui", "index.html")
 
     title_suffix = f" — [{target_ssid}]" if target_ssid else " — [Auto]"
     window = webview.create_window(

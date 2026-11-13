@@ -7,9 +7,35 @@ import time
 import threading
 import subprocess
 import socket
+import struct
 import re
 
 wlan = ctypes.windll.wlanapi
+iphlpapi = ctypes.windll.iphlpapi
+
+# Configure Windows ICMP API signatures for 64-bit handle safety
+iphlpapi.IcmpCreateFile.argtypes = []
+iphlpapi.IcmpCreateFile.restype = wintypes.HANDLE
+iphlpapi.IcmpSendEcho.argtypes = [
+    wintypes.HANDLE,
+    wintypes.DWORD,
+    ctypes.c_void_p,
+    wintypes.WORD,
+    ctypes.c_void_p,
+    ctypes.c_void_p,
+    wintypes.DWORD,
+    wintypes.DWORD,
+]
+iphlpapi.IcmpSendEcho.restype = wintypes.DWORD
+iphlpapi.IcmpCloseHandle.argtypes = [wintypes.HANDLE]
+iphlpapi.IcmpCloseHandle.restype = wintypes.BOOL
+iphlpapi.GetAdaptersInfo.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.ULONG)]
+iphlpapi.GetAdaptersInfo.restype = wintypes.DWORD
+
+INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+IF_TYPE_IEEE80211 = 71
+WLAN_INTERFACE_STATE_CONNECTED = 1
+_IPV4_RE = re.compile(r"^\d{1,3}(?:\.\d{1,3}){3}$")
 
 # Windows Native WiFi API Structs
 class GUID(ctypes.Structure):
@@ -88,6 +114,72 @@ class WLAN_BSS_LIST(ctypes.Structure):
         ('wlanBssEntries', WLAN_BSS_ENTRY * 1)
     ]
 
+class IP_ADDR_STRING(ctypes.Structure):
+    _fields_ = [
+        ('Next', ctypes.c_void_p),
+        ('IpAddress', ctypes.c_char * 16),
+        ('IpMask', ctypes.c_char * 16),
+        ('Context', wintypes.DWORD),
+    ]
+
+class IP_ADAPTER_INFO(ctypes.Structure):
+    _fields_ = [
+        ('Next', ctypes.c_void_p),
+        ('ComboIndex', wintypes.DWORD),
+        ('AdapterName', ctypes.c_char * 260),
+        ('Description', ctypes.c_char * 132),
+        ('AddressLength', wintypes.UINT),
+        ('Address', ctypes.c_ubyte * 8),
+        ('Index', wintypes.DWORD),
+        ('Type', wintypes.UINT),
+        ('DhcpEnabled', wintypes.UINT),
+        ('CurrentIpAddress', ctypes.c_void_p),
+        ('IpAddressList', IP_ADDR_STRING),
+        ('GatewayList', IP_ADDR_STRING),
+        ('DhcpServer', IP_ADDR_STRING),
+        ('HaveWins', wintypes.BOOL),
+        ('PrimaryWinsServer', IP_ADDR_STRING),
+        ('SecondaryWinsServer', IP_ADDR_STRING),
+        ('LeaseObtained', ctypes.c_int64),
+        ('LeaseExpires', ctypes.c_int64),
+    ]
+
+def guid_to_str(guid):
+    """Convert a Windows GUID structure to standard uppercase braced string."""
+    if not guid:
+        return ""
+    d4 = [b & 0xFF for b in guid.Data4]
+    return (
+        f"{{{guid.Data1:08X}-{guid.Data2:04X}-{guid.Data3:04X}-"
+        f"{d4[0]:02X}{d4[1]:02X}-{''.join(f'{x:02X}' for x in d4[2:])}}}"
+    )
+
+def _is_valid_ipv4(ip_str):
+    """Return True if ip_str is a valid non-placeholder IPv4 address."""
+    if not ip_str or ip_str in ("0.0.0.0", "127.0.0.1", "255.255.255.255"):
+        return False
+    if not _IPV4_RE.match(ip_str):
+        return False
+    try:
+        socket.inet_aton(ip_str)
+        return True
+    except OSError:
+        return False
+
+def _first_valid_ip_in_list(addr_struct):
+    """Extract the first valid IPv4 string from an IP_ADDR_STRING linked list."""
+    raw = addr_struct.IpAddress.decode("ascii", errors="ignore").strip("\x00 ")
+    if _is_valid_ipv4(raw):
+        return raw
+    curr_ptr = addr_struct.Next
+    while curr_ptr:
+        node = IP_ADDR_STRING.from_address(curr_ptr)
+        raw = node.IpAddress.decode("ascii", errors="ignore").strip("\x00 ")
+        if _is_valid_ipv4(raw):
+            return raw
+        curr_ptr = node.Next
+    return None
+
 def freq_to_channel(freq_khz):
     """Convert center frequency in kHz to Wi-Fi channel and band label."""
     freq_mhz = freq_khz / 1000.0
@@ -104,19 +196,71 @@ def freq_to_channel(freq_khz):
         return ch, "6 GHz"
     return 0, "Unknown"
 
-def get_default_gateway():
-    """Discover IPv4 default gateway address with the lowest metric via route print."""
+def get_default_gateway(interface_guid=None):
+    """Discover IPv4 gateway via native iphlpapi GetAdaptersInfo with route print fallback."""
+    target_guid_str = guid_to_str(interface_guid).upper() if interface_guid else ""
+
+    # Stage 1: Native Windows iphlpapi GetAdaptersInfo (locale-independent, VPN-resilient)
     try:
-        output = subprocess.check_output(['route', 'print', '0.0.0.0'], text=True, stderr=subprocess.DEVNULL)
+        buf_len = wintypes.ULONG(0)
+        ret = iphlpapi.GetAdaptersInfo(None, ctypes.byref(buf_len))
+        # ERROR_BUFFER_OVERFLOW = 111
+        if ret == 111 and buf_len.value > 0:
+            buf = (ctypes.c_ubyte * buf_len.value)()
+            ret = iphlpapi.GetAdaptersInfo(ctypes.byref(buf), ctypes.byref(buf_len))
+            if ret == 0:
+                matched_guid_gw = None
+                wifi_gw = None
+                dhcp_fallback_gw = None
+                any_gw = None
+
+                curr_ptr = ctypes.addressof(buf)
+                while curr_ptr:
+                    info = IP_ADAPTER_INFO.from_address(curr_ptr)
+                    adapter_name = info.AdapterName.decode("ascii", errors="ignore").strip("\x00 ").upper()
+                    gw_ip = _first_valid_ip_in_list(info.GatewayList)
+                    local_ip = _first_valid_ip_in_list(info.IpAddressList)
+                    dhcp_ip = _first_valid_ip_in_list(info.DhcpServer)
+                    is_target = bool(target_guid_str and adapter_name == target_guid_str)
+                    is_wifi = (info.Type == IF_TYPE_IEEE80211)
+
+                    if is_target and gw_ip and not matched_guid_gw:
+                        matched_guid_gw = gw_ip
+                    if is_wifi and gw_ip and not wifi_gw:
+                        wifi_gw = gw_ip
+                    if (is_target or is_wifi) and local_ip and dhcp_ip and not dhcp_fallback_gw:
+                        dhcp_fallback_gw = dhcp_ip
+                    if gw_ip and not any_gw:
+                        any_gw = gw_ip
+
+                    curr_ptr = info.Next
+
+                for candidate in (matched_guid_gw, wifi_gw, dhcp_fallback_gw, any_gw):
+                    if candidate:
+                        return candidate
+    except Exception:
+        pass
+
+    # Stage 2: Locale-safe route print fallback
+    try:
+        output = subprocess.check_output(
+            ['route', 'print', '0.0.0.0'],
+            encoding='ascii',
+            errors='ignore',
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
         best_gw = None
         best_metric = float('inf')
         for line in output.splitlines():
             parts = line.strip().split()
-            if len(parts) >= 5 and parts[0] == '0.0.0.0' and parts[1] == '0.0.0.0':
-                gw = parts[2]
-                if gw not in ('On-link', '0.0.0.0'):
+            if len(parts) >= 4 and parts[0] == '0.0.0.0' and parts[1] == '0.0.0.0':
+                # Require at least gateway IP + interface IP (localized "On-link" has only 1 IP token)
+                ip_tokens = [tok for tok in parts[2:] if _is_valid_ipv4(tok)]
+                if len(ip_tokens) >= 2:
+                    gw = ip_tokens[0]
                     try:
-                        metric = int(parts[4])
+                        metric = int(parts[-1])
                     except ValueError:
                         metric = 9999
                     if metric < best_metric:
@@ -127,6 +271,62 @@ def get_default_gateway():
     except Exception:
         pass
     return None
+
+def icmp_ping(ip_str, timeout_ms=800):
+    """Send a single ICMP echo request via native iphlpapi with ping.exe fallback."""
+    if not _is_valid_ipv4(ip_str):
+        return False, None
+
+    # Stage 1: Native Windows ICMP API (no subprocess overhead, locale-independent)
+    try:
+        handle = iphlpapi.IcmpCreateFile()
+        if handle and handle != INVALID_HANDLE_VALUE:
+            try:
+                dest_addr = struct.unpack("<I", socket.inet_aton(ip_str))[0]
+                payload = b"WifiRoamSentinelPingPayload32byt"
+                reply_buf = ctypes.create_string_buffer(256)
+                ret = iphlpapi.IcmpSendEcho(
+                    handle,
+                    dest_addr,
+                    payload,
+                    len(payload),
+                    None,
+                    reply_buf,
+                    len(reply_buf),
+                    int(timeout_ms),
+                )
+                if ret > 0:
+                    _addr, status, rtt = struct.unpack_from("<III", reply_buf.raw, 0)
+                    if status == 0:
+                        return True, max(1, int(rtt))
+                return False, None
+            finally:
+                iphlpapi.IcmpCloseHandle(handle)
+    except Exception:
+        pass
+
+    # Stage 2: Locale-independent ping.exe fallback
+    t0 = time.perf_counter()
+    try:
+        res = subprocess.run(
+            ['ping', '-n', '1', '-w', str(int(timeout_ms)), ip_str],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            encoding='ascii',
+            errors='ignore',
+            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        )
+        dt = (time.perf_counter() - t0) * 1000.0
+        if res.returncode == 0 and 'TTL=' in res.stdout.upper():
+            for line in res.stdout.splitlines():
+                if 'TTL=' in line.upper():
+                    match = re.search(r'[=<]\s*(\d+)', line)
+                    if match:
+                        return True, max(1, int(match.group(1)))
+            return True, max(1, int(dt))
+    except Exception:
+        pass
+    return False, None
 
 
 class SessionLogger:
@@ -274,7 +474,7 @@ class WifiMonitor:
         self.connected_info = {}
         self.visible_aps = []
         self.roam_events = []
-        self.gateway = get_default_gateway()
+        self.gateway = None
         self.last_ping_ms = None
         self.ping_status = "Unknown"
         self.consecutive_drops = 0
@@ -291,6 +491,8 @@ class WifiMonitor:
         
         # Ping drop measurement state
         self.drop_start_time = None
+        self.last_drop_end_time = None
+        self.last_drop_duration_ms = None
         self.recent_pings = []
 
         # Session logger for CSV export
@@ -298,9 +500,10 @@ class WifiMonitor:
         self.log_sample_counter = 0
 
         self._init_wlan()
+        self.gateway = get_default_gateway(self.guid)
 
     def _init_wlan(self):
-        """Open WLAN handle and detect interface GUID."""
+        """Open WLAN handle and detect connected (or primary) Wi-Fi interface GUID."""
         negotiated = wintypes.DWORD()
         ret = wlan.WlanOpenHandle(2, None, ctypes.byref(negotiated), ctypes.byref(self.handle))
         if ret != 0:
@@ -309,9 +512,19 @@ class WifiMonitor:
         pIfList = ctypes.POINTER(WLAN_INTERFACE_INFO_LIST)()
         ret = wlan.WlanEnumInterfaces(self.handle, None, ctypes.byref(pIfList))
         if ret == 0 and pIfList.contents.dwNumberOfItems > 0:
-            raw_guid = pIfList.contents.InterfaceInfo[0].InterfaceGuid
+            num_items = pIfList.contents.dwNumberOfItems
+            base_ptr = ctypes.cast(pIfList.contents.InterfaceInfo, ctypes.c_void_p).value
+            entry_size = ctypes.sizeof(WLAN_INTERFACE_INFO)
+
+            selected_guid = pIfList.contents.InterfaceInfo[0].InterfaceGuid
+            for i in range(num_items):
+                info = WLAN_INTERFACE_INFO.from_address(base_ptr + i * entry_size)
+                if info.isState == WLAN_INTERFACE_STATE_CONNECTED:
+                    selected_guid = info.InterfaceGuid
+                    break
+
             self.guid = GUID()
-            ctypes.memmove(ctypes.byref(self.guid), ctypes.byref(raw_guid), ctypes.sizeof(GUID))
+            ctypes.memmove(ctypes.byref(self.guid), ctypes.byref(selected_guid), ctypes.sizeof(GUID))
             wlan.WlanFreeMemory(pIfList)
         else:
             if pIfList:
@@ -451,38 +664,20 @@ class WifiMonitor:
                 time.sleep(0.5)
                 continue
 
-            t0 = time.perf_counter()
             try:
-                res = subprocess.run(
-                    ['ping', '-n', '1', '-w', '800', gw],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.DEVNULL,
-                    text=True
-                )
-                dt = (time.perf_counter() - t0) * 1000.0
-
-                success = False
-                rtt = None
-                if res.returncode == 0:
-                    for line in res.stdout.splitlines():
-                        match = re.search(r'(?:time|Zeit|время)[=<](\d+)\s*ms', line, re.IGNORECASE)
-                        if match:
-                            rtt = int(match.group(1))
-                            success = True
-                            break
-                    if not success and 'TTL=' in res.stdout.upper():
-                        success = True
-                        rtt = max(1, int(dt))
+                success, rtt = icmp_ping(gw, timeout_ms=800)
 
                 now = time.time()
                 with self.lock:
                     if success:
                         self.consecutive_drops = 0
-                        self.last_ping_ms = rtt if rtt is not None else int(dt)
+                        self.last_ping_ms = rtt
                         self.ping_status = "OK"
                         if self.drop_start_time is not None:
-                            drop_duration = (now - self.drop_start_time) * 1000.0
-                            self.last_handover_latency_ms = round(drop_duration, 1)
+                            drop_duration = round((now - self.drop_start_time) * 1000.0, 1)
+                            self.last_drop_duration_ms = drop_duration
+                            self.last_drop_end_time = now
+                            self.last_handover_latency_ms = drop_duration
                             self.drop_start_time = None
                     else:
                         self.consecutive_drops += 1
@@ -501,7 +696,7 @@ class WifiMonitor:
 
                 # If drops occur consecutively, check if gateway IP changed
                 if not success and self.consecutive_drops >= 2:
-                    fresh_gw = get_default_gateway()
+                    fresh_gw = get_default_gateway(self.guid)
                     if fresh_gw and fresh_gw != self.gateway:
                         with self.lock:
                             self.gateway = fresh_gw
@@ -526,7 +721,7 @@ class WifiMonitor:
                 gw_check_counter += 1
                 if gw_check_counter >= 25 or not self.gateway:
                     gw_check_counter = 0
-                    fresh_gw = get_default_gateway()
+                    fresh_gw = get_default_gateway(self.guid)
                     if fresh_gw != self.gateway:
                         with self.lock:
                             self.gateway = fresh_gw
@@ -535,7 +730,7 @@ class WifiMonitor:
                     if is_connected and curr_ssid:
                         if curr_ssid != self.connected_ssid:
                             self.connected_ssid = curr_ssid
-                            fresh_gw = get_default_gateway()
+                            fresh_gw = get_default_gateway(self.guid)
                             if fresh_gw:
                                 self.gateway = fresh_gw
                             if self.last_seen_bssid != "":
@@ -573,9 +768,14 @@ class WifiMonitor:
                         curr_rssi = matched_active_ap["rssi"] if matched_active_ap else 0
 
                         if self.last_seen_bssid != "":
-                            latency = self.last_handover_latency_ms
-                            if latency is None or latency == 0:
-                                latency = self.last_ping_ms if self.last_ping_ms else 25
+                            now_ts = time.time()
+                            if self.drop_start_time is not None:
+                                latency = round((now_ts - self.drop_start_time) * 1000.0, 1)
+                            elif self.last_drop_end_time is not None and (now_ts - self.last_drop_end_time) <= 5.0:
+                                latency = self.last_drop_duration_ms
+                                self.last_drop_end_time = None
+                            else:
+                                latency = self.last_ping_ms if self.last_ping_ms is not None else 0
 
                             self.roam_count += 1
                             self.last_roam_time = now_str
@@ -616,7 +816,7 @@ class WifiMonitor:
                                 })
 
                             # On roam, immediately refresh gateway (possible VLAN/subnet change)
-                            fresh_gw = get_default_gateway()
+                            fresh_gw = get_default_gateway(self.guid)
                             if fresh_gw:
                                 self.gateway = fresh_gw
 
